@@ -65,6 +65,19 @@
 
 > 圖表：`reports/rfm_segments_revenue.html`、`reports/kmeans_elbow.html`、`reports/kmeans_silhouette.html`、`reports/kmeans_scatter.html`。
 
+## 關鍵洞察（Phase 2：CLV）
+
+對 5,852 位客戶估計未來 3 個月的預測型 CLV（完整見 `reports/phase2_clv.md`）：
+
+- **方法**：歷史 CLV（觀察到的累積消費）當基準，再用 **BG/NBD 估未來購買次數 + Gamma-Gamma 估每筆金額** 算機率型 CLV。Gamma-Gamma 需要重複購買才能估個別客戶的金額分布，所以只在 **4,179 位重複客** 上 fit；1,673 位一次性買家以「BG/NBD 預測次數 × 母體平均客單價」做 fallback，並用 `clv_method` 欄位標記，兩個族群不混用。
+- **模型驗證（這是重點）**：用 calibration/holdout 切分（訓練 ≤ 2011-06-12、測試 180 天），預測 vs 實際的購買次數**相關係數 0.848**，總量預測 7,549 對實際 7,717（**僅低估 2.2%**）。Gamma-Gamma 的「次數與金額不相關」假設也成立（相關係數 0.02）。展示的是**會驗證的機率方法，不是只 fit 不檢查**。
+- **接回 Phase 1 分群**：Champions 平均預測 CLV £1,346、存活機率 0.99，貢獻約 £1.5M 未來價值；**Can't Lose Them 的平均存活機率只有 0.38**——模型獨立印證了這群高價值客正在流失，呼應規則式分群的命名。
+- **averages 會誤導的具體例子**：客戶 16446 歷史消費 £168k 但預測只會再買 0.53 次（大額但罕見的批發客）；客戶 14911 預測會再買 28 次、存活機率 1.0（穩定回購）。平均值看不出這個差異，機率模型可以。
+
+> 小註：BG/NBD 對「只買過一次」的客戶會給存活機率 = 1（在模型定義中，還沒發生過重購就無從「流失」），所以規則式的「Lost」分群與 BG/NBD 的 prob_alive 可能不一致——兩者衡量的是不同東西，這是模型特性而非錯誤。
+>
+> 圖表：`reports/clv_distribution.html`、`reports/clv_validation.html`、`reports/clv_by_segment.html`。
+
 ---
 
 ## 因果思維（誠實處理）
@@ -96,7 +109,7 @@ ruff check . && ruff format .
 
 - [x] **Phase 0** — 設定與商業框架、資料清理、EDA
 - [x] **Phase 1** — 客群分群（RFM 規則式分群 + K-means）
-- [ ] **Phase 2** — CLV（BG/NBD + Gamma-Gamma）
+- [x] **Phase 2** — CLV（歷史 CLV + BG/NBD + Gamma-Gamma + holdout 驗證）
 - [ ] **Phase 3** — 購物籃分析 → Next Best Offer
 - [ ] **Phase 4** — 購買預測／傾向模型
 - [ ] **Phase 5** — 產品化 + LLM Insight Copilot
@@ -115,10 +128,12 @@ consumer-intelligence/
 │   ├── data/                     # 載入 + 清理
 │   ├── features/                 # RFM 特徵
 │   ├── segmentation/             # RFM 規則式分群 + K-means
+│   ├── clv/                      # 歷史 + BG/NBD + Gamma-Gamma CLV、holdout 驗證
 │   └── eda/                      # EDA 摘要函式
 ├── scripts/
 │   ├── run_phase0.py             # 清理 + EDA pipeline
-│   └── run_phase1.py             # RFM + 分群 pipeline
+│   ├── run_phase1.py             # RFM + 分群 pipeline
+│   └── run_phase2.py             # CLV pipeline
 ├── reports/                      # 產出的 EDA 報告與圖表
 ├── tests/                        # 對應 data/ 與 eda/ 的 pytest
 └── .github/workflows/ci.yml      # lint + test
