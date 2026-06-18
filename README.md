@@ -91,6 +91,18 @@
 >
 > 圖表：`reports/basket_rules_scatter.html`(support × confidence,以 lift 著色)。
 
+## 關鍵洞察（Phase 4：購買傾向預測）
+
+預測「客戶會不會在未來 90 天內再次購買」(完整見 `reports/phase4_propensity.md`)：
+
+- **無洩漏的時間切分**:取一個 cutoff(資料最後一天往前 90 天),**特徵只用 cutoff 之前的交易**,標籤是 cutoff 之後 90 天內是否再購。只在 cutoff 前有購買紀錄的客戶才進模型(5,256 位,正樣本率 43.6%)。這個切分是整個 phase 的重點——錯了就會得到漂亮但造假的分數。
+- **特徵**:9 個來自 RFM + 行為的快照特徵(recency、frequency、monetary、tenure、平均客單價、平均購買間隔、品項數、平均籃子大小、recency/tenure 比),全部無 NaN。
+- **誠實的模型比較**:Logistic 回歸 baseline 的 **ROC-AUC 0.804 / PR-AUC 0.781**,**略勝** LightGBM(0.784 / 0.759)。這是個成熟的結果而非失敗——在這個規模、又用了精心設計的特徵時,訊號大致是線性的,樹模型的額外複雜度沒帶來好處(甚至略微過擬合)。**baseline 存在的意義就是讓樹模型必須「贏得」它的位置**;這裡它沒贏,就該誠實寫出來。
+- **SHAP 可解釋性**:最重要的特徵是 recency、recency/tenure 比、平均購買間隔、monetary——「多近、多規律地買」最能預測會不會再買,符合商業直覺。
+- **校準(calibration)**:預測機率與實際再購比率大致吻合(如預測 0.83 的群組實際 0.73),代表分數可當「機率」用於 targeting,而非只是排序。
+
+> 圖表：`reports/propensity_calibration.html`、`reports/propensity_shap.html`。
+
 ---
 
 ## 因果思維（誠實處理）
@@ -124,7 +136,7 @@ ruff check . && ruff format .
 - [x] **Phase 1** — 客群分群（RFM 規則式分群 + K-means）
 - [x] **Phase 2** — CLV（歷史 CLV + BG/NBD + Gamma-Gamma + holdout 驗證）
 - [x] **Phase 3** — 購物籃分析（FP-Growth 關聯規則）→ Next Best Offer
-- [ ] **Phase 4** — 購買預測／傾向模型
+- [x] **Phase 4** — 購買預測／傾向模型（Logistic baseline + LightGBM + SHAP）
 - [ ] **Phase 5** — 產品化 + LLM Insight Copilot
 
 詳細規劃見 `PROJECT_PLAN.md`；給 Claude Code 的工作守則見 `CLAUDE.md`。
@@ -143,12 +155,14 @@ consumer-intelligence/
 │   ├── segmentation/             # RFM 規則式分群 + K-means
 │   ├── clv/                      # 歷史 + BG/NBD + Gamma-Gamma CLV、holdout 驗證
 │   ├── basket/                   # FP-Growth 關聯規則 + Next Best Offer
+│   ├── propensity/               # 購買傾向:特徵、Logistic/LightGBM、SHAP
 │   └── eda/                      # EDA 摘要函式
 ├── scripts/
 │   ├── run_phase0.py             # 清理 + EDA pipeline
 │   ├── run_phase1.py             # RFM + 分群 pipeline
 │   ├── run_phase2.py             # CLV pipeline
-│   └── run_phase3.py             # 購物籃 + NBO pipeline
+│   ├── run_phase3.py             # 購物籃 + NBO pipeline
+│   └── run_phase4.py             # 購買傾向 pipeline
 ├── reports/                      # 產出的 EDA 報告與圖表
 ├── tests/                        # 對應 data/ 與 eda/ 的 pytest
 └── .github/workflows/ci.yml      # lint + test
