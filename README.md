@@ -78,6 +78,19 @@
 >
 > 圖表：`reports/clv_distribution.html`、`reports/clv_validation.html`、`reports/clv_by_segment.html`。
 
+## 關鍵洞察（Phase 3：購物籃分析 → Next Best Offer）
+
+對 36,594 筆訂單做關聯規則(完整見 `reports/phase3_basket_nbo.md`)：
+
+- **方法**：先把長尾稀有商品剪掉(只留出現在 ≥1% 訂單的 562 項商品),用稀疏矩陣 + **FP-Growth**(比 Apriori 快很多)挖頻繁項集,再算 support / confidence / **lift** 的關聯規則,共得 **944 條規則**。
+- **規則抓到真實的商品組合**:最高 lift 的規則是同系列收藏品——Poppy's Playhouse 的臥室/廚房/客廳被當成一套買(lift ~56)、Red Spotty 派對紙餐具(餐巾+杯+盤)、點點杯的藍↔粉。lift 高代表「一起買的機率遠超隨機」,正是交叉銷售的訊號。
+- **Next Best Offer 給出可直接用的推薦**:輸入一個商品,引擎依 lift 回傳最該推的下一個商品。例如 Regency 三層蛋糕架 → Regency 茶杯組(lift 6.4,下午茶主題)、White Hanging Heart 燭台 → 其他 hanging heart 系列(lift 5)、Lunch Bag Red Retrospot → 同系列其他午餐袋(lift 9.9)。推薦結果都落在同主題/同系列,符合 NBO 的商業直覺。
+- **如何用**:`recommend_for_product(rules, code)` 或 `recommend_for_basket(rules, {code1, code2})`,會自動排除已在購物籃裡的商品。
+
+> 公開資料沒有實驗組,所以這裡只做關聯(association),不宣稱因果——「推了會不會真的提升銷售」需要 A/B test,屬未來 uplift 的範疇。
+>
+> 圖表：`reports/basket_rules_scatter.html`(support × confidence,以 lift 著色)。
+
 ---
 
 ## 因果思維（誠實處理）
@@ -110,7 +123,7 @@ ruff check . && ruff format .
 - [x] **Phase 0** — 設定與商業框架、資料清理、EDA
 - [x] **Phase 1** — 客群分群（RFM 規則式分群 + K-means）
 - [x] **Phase 2** — CLV（歷史 CLV + BG/NBD + Gamma-Gamma + holdout 驗證）
-- [ ] **Phase 3** — 購物籃分析 → Next Best Offer
+- [x] **Phase 3** — 購物籃分析（FP-Growth 關聯規則）→ Next Best Offer
 - [ ] **Phase 4** — 購買預測／傾向模型
 - [ ] **Phase 5** — 產品化 + LLM Insight Copilot
 
@@ -129,11 +142,13 @@ consumer-intelligence/
 │   ├── features/                 # RFM 特徵
 │   ├── segmentation/             # RFM 規則式分群 + K-means
 │   ├── clv/                      # 歷史 + BG/NBD + Gamma-Gamma CLV、holdout 驗證
+│   ├── basket/                   # FP-Growth 關聯規則 + Next Best Offer
 │   └── eda/                      # EDA 摘要函式
 ├── scripts/
 │   ├── run_phase0.py             # 清理 + EDA pipeline
 │   ├── run_phase1.py             # RFM + 分群 pipeline
-│   └── run_phase2.py             # CLV pipeline
+│   ├── run_phase2.py             # CLV pipeline
+│   └── run_phase3.py             # 購物籃 + NBO pipeline
 ├── reports/                      # 產出的 EDA 報告與圖表
 ├── tests/                        # 對應 data/ 與 eda/ 的 pytest
 └── .github/workflows/ci.yml      # lint + test

@@ -21,6 +21,7 @@ dependencies = [
 # Heavier modelling deps land in later phases; kept optional so Phase 0 stays light.
 ml = [
     "scikit-learn>=1.4",
+    "scipy>=1.11",
     "lightgbm>=4.1",
     "xgboost>=2.0",
     "shap>=0.44",
