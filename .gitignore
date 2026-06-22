@@ -1,6 +1,7 @@
 # Data (raw download + generated artifacts are not committed)
 data/raw/*
 data/processed/*
+data/*.db
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 reports/*.html
