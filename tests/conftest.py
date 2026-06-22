@@ -105,3 +105,91 @@ def raw_sample() -> pd.DataFrame:
     df["Description"] = df["Description"].astype("string")
     df["Country"] = df["Country"].astype("string")
     return df
+
+
+@pytest.fixture
+def populated_engine(tmp_path):
+    """A throwaway SQLite database with a few customers and rules loaded.
+
+    Lets the db/api tests run without PostgreSQL or the real parquet outputs.
+    """
+    from consumer_intel.db.engine import make_engine
+
+    engine = make_engine(f"sqlite:///{tmp_path / 'test.db'}")
+    customers = pd.DataFrame(
+        [
+            {
+                "customer_id": "C1",
+                "recency": 5,
+                "frequency": 10,
+                "monetary": 5000.0,
+                "rfm_score": "555",
+                "segment": "Champions",
+                "action": "Reward loyalty.",
+                "cluster_name": "High-Value Active",
+                "predicted_clv": 1200.0,
+                "prob_alive": 0.95,
+                "predicted_purchases": 4.0,
+                "historical_clv": 5000.0,
+                "clv_method": "bg_nbd_gamma_gamma",
+                "propensity": 0.8,
+            },
+            {
+                "customer_id": "C2",
+                "recency": 300,
+                "frequency": 2,
+                "monetary": 8000.0,
+                "rfm_score": "155",
+                "segment": "Can't Lose Them",
+                "action": "Win them back.",
+                "cluster_name": "High-Value Lapsing",
+                "predicted_clv": 300.0,
+                "prob_alive": 0.30,
+                "predicted_purchases": 0.2,
+                "historical_clv": 8000.0,
+                "clv_method": "bg_nbd_gamma_gamma",
+                "propensity": 0.1,
+            },
+            {
+                "customer_id": "C3",
+                "recency": 120,
+                "frequency": 1,
+                "monetary": 40.0,
+                "rfm_score": "111",
+                "segment": "Lost",
+                "action": "Minimal spend.",
+                "cluster_name": "Dormant Low-Value",
+                "predicted_clv": 5.0,
+                "prob_alive": 1.0,
+                "predicted_purchases": 0.1,
+                "historical_clv": 40.0,
+                "clv_method": "fallback_pop_mean",
+                "propensity": None,
+            },
+        ]
+    )
+    rules = pd.DataFrame(
+        [
+            {
+                "antecedents": "LUNCH BAG RED",
+                "consequents": "LUNCH BAG PINK",
+                "antecedents_codes": "20725",
+                "consequents_codes": "22384",
+                "support": 0.02,
+                "confidence": 0.18,
+                "lift": 9.9,
+            },
+            {
+                "antecedents": "LUNCH BAG RED",
+                "consequents": "LUNCH BAG BLACK",
+                "antecedents_codes": "20725",
+                "consequents_codes": "20727",
+                "support": 0.018,
+                "confidence": 0.17,
+                "lift": 8.9,
+            },
+        ]
+    )
+    customers.to_sql("customers", engine, index=False, if_exists="replace")
+    rules.to_sql("rules", engine, index=False, if_exists="replace")
+    return engine

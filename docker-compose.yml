@@ -1,0 +1,51 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: intel
+      POSTGRES_PASSWORD: intel
+      POSTGRES_DB: intel
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U intel"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg2://intel:intel@db:5432/intel
+      # Optional: set OPENAI_API_KEY or ANTHROPIC_API_KEY to enable LLM narration.
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data/processed:/app/data/processed:ro
+    # Load the data on boot, then serve the API.
+    command: >
+      sh -c "python scripts/load_db.py &&
+             uvicorn consumer_intel.api.app:app --host 0.0.0.0 --port 8000"
+
+  dashboard:
+    build: .
+    environment:
+      API_URL: http://api:8000
+    depends_on:
+      - api
+    ports:
+      - "8501:8501"
+    command: >
+      sh -c "pip install --no-cache-dir -e '.[app]' &&
+             streamlit run app/dashboard.py --server.address 0.0.0.0 --server.port 8501"
+    volumes:
+      - ./app:/app/app
+
+volumes:
+  pgdata:

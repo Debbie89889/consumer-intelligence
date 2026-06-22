@@ -103,6 +103,18 @@
 
 > 圖表：`reports/propensity_calibration.html`、`reports/propensity_shap.html`。
 
+## Phase 5：產品化（後端服務）
+
+把前四階段的產出整合成一個小型後端系統:**PostgreSQL 資料層 + FastAPI 服務 + Docker + grounded LLM Copilot**,前端用一支呼叫 API 的 Streamlit。
+
+- **資料層(SQL)**:各階段的客戶級產出(RFM/segment、CLV、propensity)合併成一張 `customers` 表,關聯規則進 `rules` 表。`db/schema.sql` 是 PostgreSQL DDL,`sql/analytics.sql` 放分析查詢(segment rollup、CLV 十分位 Pareto、高價值流失名單、cross-sell 規則、高傾向 targeting 名單)。API 的查詢用參數化 SQL(`db/repository.py`),ANSI 相容,**同一份程式碼在 PostgreSQL(正式)與 SQLite(本機/測試)都能跑**。
+- **API(FastAPI)**:`GET /customers/{id}`、`/customers/{id}/insight`(Copilot)、`/segments`、`/customers/top-clv`、`/products/{code}/next-best-offer`、`/health`。Pydantic 定義 response model;互動文件在 `/docs`(Swagger UI)。
+- **grounded LLM Copilot**:**所有數字由 SQL/Python 算好**,風險等級也是 Python 依 `prob_alive` 分級;LLM 只把事實翻成商業敘述。敘述層用 **LangChain** orchestration:`ChatPromptTemplate | model.with_structured_output(NarratedInsight)`——LangChain 負責 prompt 組裝與**結構化輸出驗證**,而 `with_structured_output` 的 schema 只含可敘述的文字欄位,LLM 碰不到 grounded 數字/segment/風險。provider-agnostic(`init_chat_model`,以 `LLM_PROVIDER`/`LLM_MODEL` 或 API key 自動選 OpenAI/Anthropic);沒設 key 或呼叫失敗時自動退回**確定性模板**敘述,所以離線/CI 也能跑。最終結果用 Pydantic(`Literal`+`Field`)組裝並保留 `grounding` 可追溯。
+- **容器化**:`docker compose up` 一次起 Postgres + API + Streamlit 三個 service;API 開機先 `load_db.py` 載資料再啟動 uvicorn。
+- **前端**:`app/dashboard.py` 是薄客戶端,只呼叫 API 並呈現(Segments / Customer 360 / Next Best Offer 三個分頁)。
+
+> 測試:repository 對 SQLite、API 用 FastAPI `TestClient`、Copilot 驗證 grounding 與 Pydantic 約束——全程不需 PostgreSQL 或真實 LLM key。
+
 ---
 
 ## 因果思維（誠實處理）
@@ -128,6 +140,23 @@ pytest
 ruff check . && ruff format .
 ```
 
+### Phase 5：跑後端服務
+
+```bash
+# 方式 A：一鍵起 Postgres + API + Streamlit
+docker compose up
+
+# 方式 B：本機(用 SQLite,免裝 Postgres)
+pip install -e ".[api,app,ml,copilot]"
+python scripts/load_db.py                                   # 載入各階段產出
+uvicorn consumer_intel.api.app:app --reload                 # API + /docs
+streamlit run app/dashboard.py                              # 前端(另一個終端)
+
+# 要啟用 LLM 敘述(否則用確定性模板):設 OPENAI_API_KEY 或 ANTHROPIC_API_KEY
+```
+
+API 文件(Swagger UI)在 http://localhost:8000/docs;前端在 http://localhost:8501。
+
 ---
 
 ## 進度
@@ -137,7 +166,7 @@ ruff check . && ruff format .
 - [x] **Phase 2** — CLV（歷史 CLV + BG/NBD + Gamma-Gamma + holdout 驗證）
 - [x] **Phase 3** — 購物籃分析（FP-Growth 關聯規則）→ Next Best Offer
 - [x] **Phase 4** — 購買預測／傾向模型（Logistic baseline + LightGBM + SHAP）
-- [ ] **Phase 5** — 產品化 + LLM Insight Copilot
+- [x] **Phase 5** — 產品化：PostgreSQL + FastAPI 服務 + Docker + grounded LLM Copilot + Streamlit 前端
 
 詳細規劃見 `PROJECT_PLAN.md`；給 Claude Code 的工作守則見 `CLAUDE.md`。
 
@@ -156,13 +185,17 @@ consumer-intelligence/
 │   ├── clv/                      # 歷史 + BG/NBD + Gamma-Gamma CLV、holdout 驗證
 │   ├── basket/                   # FP-Growth 關聯規則 + Next Best Offer
 │   ├── propensity/               # 購買傾向:特徵、Logistic/LightGBM、SHAP
+│   ├── db/                       # SQLAlchemy engine、loader、SQL repository
+│   ├── copilot/                  # grounded LLM Insight Copilot(Pydantic 驗證)
+│   ├── api/                      # FastAPI app、Pydantic models、DB 依賴
 │   └── eda/                      # EDA 摘要函式
+├── app/dashboard.py              # Streamlit 前端(呼叫 API)
+├── db/schema.sql                 # PostgreSQL DDL
+├── sql/analytics.sql             # 分析查詢(展示 SQL)
+├── Dockerfile · docker-compose.yml
 ├── scripts/
-│   ├── run_phase0.py             # 清理 + EDA pipeline
-│   ├── run_phase1.py             # RFM + 分群 pipeline
-│   ├── run_phase2.py             # CLV pipeline
-│   ├── run_phase3.py             # 購物籃 + NBO pipeline
-│   └── run_phase4.py             # 購買傾向 pipeline
+│   ├── run_phase0.py ~ run_phase4.py   # 各階段 pipeline
+│   └── load_db.py                # 載入各階段產出進資料庫
 ├── reports/                      # 產出的 EDA 報告與圖表
 ├── tests/                        # 對應 data/ 與 eda/ 的 pytest
 └── .github/workflows/ci.yml      # lint + test
