@@ -20,8 +20,9 @@ services:
     runtime: docker
     plan: free
     dockerfilePath: ./Dockerfile
-    # Load the precomputed outputs into Postgres on boot, then serve the API.
-    dockerCommand: sh -c "python scripts/load_db.py && uvicorn consumer_intel.api.app:app --host 0.0.0.0 --port $PORT"
+    # Start logic lives in a script so the command stays trivial (no nested
+    # quotes / && / $PORT in YAML, which Render's shell wrapping mangles).
+    dockerCommand: sh scripts/start_api.sh
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
@@ -38,7 +39,7 @@ services:
     runtime: docker
     plan: free
     dockerfilePath: ./Dockerfile
-    dockerCommand: sh -c "streamlit run app/dashboard.py --server.port $PORT --server.address 0.0.0.0 --server.headless true"
+    dockerCommand: sh scripts/start_dashboard.sh
     envVars:
       - key: API_URL
         sync: false  # set this to the API service's public URL after it deploys
