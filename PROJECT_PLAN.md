@@ -116,19 +116,13 @@ consumer-intelligence/
 ### Phase 5 — 產品化 ✅
 - **資料層**:各階段產出載入 5 張 SQL 表(customers／rules／products／monthly／country)。
 - **API**:FastAPI 12 個端點 + Swagger `/docs`,Pydantic response model。
-- **grounded LLM Copilot**:LangChain 敘述層,數字全由 Python 算好,Pydantic 驗證,離線/CI 退回確定性模板。
+- **grounded LLM Copilot**:LangChain 敘述層,數字全由 Python 算好,Pydantic 驗證;線上部署已設定 OpenAI,實際以真實 LLM 產生繁中敘述,本機/CI 未設 key 時退回確定性模板。
 - **前端**:Streamlit 4 分頁(客群總覽／客戶分析／產品分析／趨勢與地區),含世界地圖。
 - **部署**:Dockerfile、docker-compose、Render `render.yaml` Blueprint。
 
 ---
 
-## 6. 因果推論／Uplift(誠實處理)
-
-公開資料沒有實驗組／對照組,**真正的 uplift／incrementality 做不出來,不硬湊**。README 以方法論層次說明:若有 treatment 資料(例如曾否收到某 offer),會用 A/B test 設計搭配 uplift modeling 量測增量效果。定位是「懂方法、不 overclaim」。
-
----
-
-## 7. 範圍說明
+## 6. 範圍說明
 
 - **核心(Phase 0–3)**:分群、CLV、購物籃 NBO——一份資料即可完成的零售分析主幹。
 - **加上 Phase 4**:補上 tree-based 分類與傾向建模,並做完整評估。

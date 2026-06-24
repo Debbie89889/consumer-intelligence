@@ -127,7 +127,7 @@
 
 - **資料層(SQL)**:各階段產出載入 5 張表——`customers`(RFM/segment/CLV/propensity 合併)、`rules`、`products`、`monthly`、`country`。`db/schema.sql` 是 PostgreSQL DDL,`sql/analytics.sql` 放分析查詢。API 的查詢用參數化 SQL(`db/repository.py`),ANSI 相容,**同一份程式碼在 PostgreSQL(正式)與 SQLite(本機/測試)都能跑**。
 - **API(FastAPI)**:12 個端點(見下),Pydantic 定義 response model,互動文件在 `/docs`(Swagger UI)。
-- **grounded LLM Copilot**:**所有數字由 SQL/Python 算好**,風險等級也是 Python 依 `prob_alive` 分級;LLM 只把事實翻成**繁體中文**敘述。敘述層用 **LangChain**:`ChatPromptTemplate | model.with_structured_output(NarratedInsight)`,由 LangChain 負責 prompt 組裝與**結構化輸出驗證**,其 schema 只含可敘述的文字欄位,LLM 碰不到 grounded 數字。provider-agnostic(`init_chat_model`,以環境變數選 OpenAI/Anthropic);沒設 key 或呼叫失敗時自動退回**確定性模板**,所以離線/CI 也能跑。
+- **grounded LLM Copilot**:**所有數字由 SQL/Python 算好**,風險等級也是 Python 依 `prob_alive` 分級;LLM 只把事實翻成**繁體中文**敘述。敘述層用 **LangChain**:`ChatPromptTemplate | model.with_structured_output(NarratedInsight)`,由 LangChain 負責 prompt 組裝與**結構化輸出驗證**,其 schema 只含可敘述的文字欄位,LLM 碰不到 grounded 數字。provider-agnostic(`init_chat_model`,以環境變數選 OpenAI/Anthropic);**線上部署已設定 OpenAI,實際以真實 LLM 產生敘述**,本機未設 key 或呼叫失敗時則自動退回**確定性模板**,離線/CI 也能跑。
 - **容器化與部署**:`Dockerfile` + `docker-compose.yml`(Postgres + API + Streamlit),`render.yaml` 為 Render 的一鍵 Blueprint。
 - **前端**:`app/dashboard.py` 是薄客戶端,只呼叫 API 並呈現。
 
@@ -197,9 +197,9 @@ python scripts/load_db.py
 docker compose up
 ```
 
-### 啟用真實 LLM 敘述(否則用確定性模板)
+### 啟用真實 LLM 敘述
 
-於 API 服務設環境變數 `OPENAI_API_KEY` 或 `ANTHROPIC_API_KEY`(可選 `LLM_MODEL`、`LLM_PROVIDER`)。未設定時 Copilot 會以確定性模板輸出,功能照常。
+於 API 服務設環境變數 `OPENAI_API_KEY`(或 `ANTHROPIC_API_KEY`),可另設 `LLM_MODEL`、`LLM_PROVIDER`。**線上部署已設定 OpenAI 金鑰與模型,Copilot 以真實 LLM 產生繁體中文敘述**;本機未設 key 時則以確定性模板輸出,功能照常。
 
 ### 測試與 lint
 
@@ -212,15 +212,9 @@ ruff check . && ruff format .
 
 ## 部署
 
-`render.yaml` 是 Render 的 Blueprint:一次建立 managed PostgreSQL + API 服務 + Streamlit 服務(皆以同一 Docker 映像、不同啟動腳本)。API 開機時先 `load_db.py` 把彙總載入 Postgres 再啟動;前端服務以 `API_URL` 指向 API。
+`render.yaml` 是 Render 的 Blueprint:一次建立 managed PostgreSQL + API 服務 + Streamlit 服務(皆以同一 Docker 映像、不同啟動腳本)。API 開機時先 `load_db.py` 把彙總載入 Postgres 再啟動;前端服務以 `API_URL` 指向 API。API 服務另設了 `OPENAI_API_KEY` 與 `LLM_MODEL`,所以**線上的洞察 Copilot 是以真實 LLM 產生繁體中文敘述**。
 
 > 註:雲端免費方案常有閒置休眠(首次請求較慢)與資料庫期限等限制,且各家條款時有調整,部署前請查當下文件。
-
----
-
-## 因果思維(誠實處理)
-
-本資料沒有實驗組／對照組,**無法做真正的 uplift / incrementality**,不在此 overclaim。若日後取得 treatment 資料(例如曾否收到某 offer),會以 A/B test 設計搭配 uplift modeling 量測增量效果——此處定位為「懂方法、不硬湊」。
 
 ---
 
