@@ -70,3 +70,17 @@ class ProductSummary(BaseModel):
     quantity: int | None = None
     orders: int | None = None
     customers: int | None = None
+
+
+class MonthlyPoint(BaseModel):
+    month: str
+    revenue: float | None = None
+    orders: int | None = None
+    customers: int | None = None
+
+
+class CountrySummary(BaseModel):
+    country: str
+    revenue: float | None = None
+    orders: int | None = None
+    customers: int | None = None

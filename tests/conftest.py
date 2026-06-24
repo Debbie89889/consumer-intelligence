@@ -221,4 +221,20 @@ def populated_engine(tmp_path):
         ]
     )
     products.to_sql("products", engine, index=False, if_exists="replace")
+    monthly = pd.DataFrame(
+        [
+            {"month": "2010-01", "revenue": 1000.0, "orders": 100, "customers": 80},
+            {"month": "2010-02", "revenue": 1500.0, "orders": 120, "customers": 95},
+            {"month": "2010-03", "revenue": 1200.0, "orders": 110, "customers": 90},
+        ]
+    )
+    monthly.to_sql("monthly", engine, index=False, if_exists="replace")
+    country = pd.DataFrame(
+        [
+            {"country": "United Kingdom", "revenue": 9000.0, "orders": 800, "customers": 700},
+            {"country": "Germany", "revenue": 2000.0, "orders": 150, "customers": 120},
+            {"country": "France", "revenue": 1500.0, "orders": 130, "customers": 100},
+        ]
+    )
+    country.to_sql("country", engine, index=False, if_exists="replace")
     return engine

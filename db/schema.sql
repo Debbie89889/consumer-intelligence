@@ -45,3 +45,19 @@ CREATE TABLE IF NOT EXISTS products (
 );
 
 CREATE INDEX IF NOT EXISTS idx_products_revenue ON products (revenue DESC);
+
+CREATE TABLE IF NOT EXISTS monthly (
+    month      TEXT PRIMARY KEY,
+    revenue    DOUBLE PRECISION,
+    orders     BIGINT,
+    customers  BIGINT
+);
+
+CREATE TABLE IF NOT EXISTS country (
+    country    TEXT PRIMARY KEY,
+    revenue    DOUBLE PRECISION,
+    orders     BIGINT,
+    customers  BIGINT
+);
+
+CREATE INDEX IF NOT EXISTS idx_country_revenue ON country (revenue DESC);

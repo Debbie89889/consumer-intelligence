@@ -11,6 +11,8 @@ data/*.db
 !data/processed/propensity_scores.parquet
 !data/processed/association_rules.parquet
 !data/processed/product_summary.parquet
+!data/processed/monthly_summary.parquet
+!data/processed/country_summary.parquet
 reports/*.html
 
 # Python

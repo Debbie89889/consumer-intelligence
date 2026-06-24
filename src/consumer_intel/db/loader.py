@@ -16,6 +16,8 @@ from consumer_intel import config
 CUSTOMERS_TABLE = "customers"
 RULES_TABLE = "rules"
 PRODUCTS_TABLE = "products"
+MONTHLY_TABLE = "monthly"
+COUNTRY_TABLE = "country"
 
 
 def build_customers_frame() -> pd.DataFrame:
@@ -78,16 +80,25 @@ def build_products_frame() -> pd.DataFrame:
     return pd.read_parquet(config.PROCESSED_DIR / "product_summary.parquet")
 
 
+def build_monthly_frame() -> pd.DataFrame:
+    """Per-month summary (revenue / orders / customers) for the trend line."""
+    return pd.read_parquet(config.PROCESSED_DIR / "monthly_summary.parquet")
+
+
+def build_country_frame() -> pd.DataFrame:
+    """Per-country summary (revenue / orders / customers)."""
+    return pd.read_parquet(config.PROCESSED_DIR / "country_summary.parquet")
+
+
 def load_all(engine: Engine) -> dict[str, int]:
     """Load all tables into the database (replacing existing). Returns row counts."""
-    customers = build_customers_frame()
-    rules = build_rules_frame()
-    products = build_products_frame()
-    customers.to_sql(CUSTOMERS_TABLE, engine, if_exists="replace", index=False)
-    rules.to_sql(RULES_TABLE, engine, if_exists="replace", index=False)
-    products.to_sql(PRODUCTS_TABLE, engine, if_exists="replace", index=False)
-    return {
-        CUSTOMERS_TABLE: len(customers),
-        RULES_TABLE: len(rules),
-        PRODUCTS_TABLE: len(products),
+    frames = {
+        CUSTOMERS_TABLE: build_customers_frame(),
+        RULES_TABLE: build_rules_frame(),
+        PRODUCTS_TABLE: build_products_frame(),
+        MONTHLY_TABLE: build_monthly_frame(),
+        COUNTRY_TABLE: build_country_frame(),
     }
+    for table, frame in frames.items():
+        frame.to_sql(table, engine, if_exists="replace", index=False)
+    return {table: len(frame) for table, frame in frames.items()}

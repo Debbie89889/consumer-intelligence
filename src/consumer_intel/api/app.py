@@ -72,6 +72,18 @@ def segments(db: Session = Depends(get_db)) -> list[models.SegmentSummaryItem]:
     return [models.SegmentSummaryItem(**r) for r in repository.segment_summary(db)]
 
 
+@app.get("/analytics/monthly", response_model=list[models.MonthlyPoint])
+def analytics_monthly(db: Session = Depends(get_db)) -> list[models.MonthlyPoint]:
+    return [models.MonthlyPoint(**r) for r in repository.monthly_series(db)]
+
+
+@app.get("/analytics/countries", response_model=list[models.CountrySummary])
+def analytics_countries(
+    limit: int = Query(15, ge=1, le=100), db: Session = Depends(get_db)
+) -> list[models.CountrySummary]:
+    return [models.CountrySummary(**r) for r in repository.country_summary(db, limit)]
+
+
 @app.get("/products", response_model=list[models.ProductSummary])
 def products(
     limit: int = Query(20, ge=1, le=500), db: Session = Depends(get_db)

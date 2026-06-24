@@ -93,3 +93,17 @@ def test_get_product(populated_engine):
     assert prod is not None
     assert prod["description"] == "LUNCH BAG RED"
     assert missing is None
+
+
+def test_monthly_series_chronological(populated_engine):
+    with Session(populated_engine) as s:
+        rows = repository.monthly_series(s)
+    assert [r["month"] for r in rows] == ["2010-01", "2010-02", "2010-03"]
+
+
+def test_country_summary_orders_by_revenue(populated_engine):
+    with Session(populated_engine) as s:
+        rows = repository.country_summary(s, limit=2)
+    assert len(rows) == 2
+    assert rows[0]["country"] == "United Kingdom"
+    assert rows[0]["revenue"] >= rows[1]["revenue"]

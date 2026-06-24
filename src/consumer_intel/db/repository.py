@@ -166,3 +166,35 @@ def get_product(session: Session, stock_code: str) -> dict | None:
         .first()
     )
     return dict(row) if row else None
+
+
+def monthly_series(session: Session) -> list[dict]:
+    """Month-by-month revenue / orders / customers, chronological."""
+    rows = (
+        session.execute(
+            text("SELECT month, revenue, orders, customers FROM monthly ORDER BY month")
+        )
+        .mappings()
+        .all()
+    )
+    return [dict(r) for r in rows]
+
+
+def country_summary(session: Session, limit: int = 15) -> list[dict]:
+    """Top countries by revenue."""
+    rows = (
+        session.execute(
+            text(
+                """
+                SELECT country, revenue, orders, customers
+                FROM country
+                ORDER BY revenue DESC
+                LIMIT :lim
+                """
+            ),
+            {"lim": limit},
+        )
+        .mappings()
+        .all()
+    )
+    return [dict(r) for r in rows]

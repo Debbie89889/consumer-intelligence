@@ -113,3 +113,18 @@ def test_product_detail(client):
 def test_product_detail_404(client):
     r = client.get("/products/NOPE")
     assert r.status_code == 404
+
+
+def test_analytics_monthly(client):
+    r = client.get("/analytics/monthly")
+    assert r.status_code == 200
+    months = [row["month"] for row in r.json()]
+    assert months == ["2010-01", "2010-02", "2010-03"]
+
+
+def test_analytics_countries(client):
+    r = client.get("/analytics/countries", params={"limit": 2})
+    assert r.status_code == 200
+    rows = r.json()
+    assert len(rows) == 2
+    assert rows[0]["country"] == "United Kingdom"

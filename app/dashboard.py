@@ -1,16 +1,16 @@
 """消費者智慧儀表板 — 呼叫 FastAPI 服務的薄前端(繁體中文)。
 
-前端本身不做任何運算,只呼叫 API 取數並呈現;API 是唯一的真相來源。
+前端不做運算,只呼叫 API 取數並呈現;API 是唯一真相來源。
 
     # 終端 1:uvicorn consumer_intel.api.app:app --reload
-    # 終端 2:streamlit run app/dashboard.py
-    # (或:docker compose up)
+    # 終端 2:streamlit run app/dashboard.py   (或 docker compose up)
 
 以 API_URL 指向服務(預設 http://localhost:8000)。
 """
 
 from __future__ import annotations
 
+import html
 import os
 
 import pandas as pd
@@ -19,15 +19,71 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 
-from consumer_intel.labels import CLUSTER_ZH, segment_zh
+from consumer_intel.labels import CLUSTER_ZH, SEGMENT_ZH, segment_zh
 
 API_URL = os.environ.get("API_URL", "http://localhost:8000")
 
 NAVY, TEAL, AMBER, CORAL, SLATE = "#0f2a4a", "#2a9d8f", "#e9a23b", "#e76f51", "#6c7a89"
-SEQ = ["#0f2a4a", "#1d4e74", "#2a9d8f", "#7cc6b8", "#e9a23b", "#e76f51", "#b8627d"]
 BLUES = ["#7cc6b8", "#0f2a4a"]
 RISK_COLOR = {"low": TEAL, "medium": AMBER, "high": CORAL}
 RISK_ZH = {"low": "低", "medium": "中", "high": "高"}
+# 固定的客群配色:同一客群在所有圖表都同色(#3)
+_PAL = [
+    "#0f2a4a",
+    "#1d4e74",
+    "#2a9d8f",
+    "#7cc6b8",
+    "#e9a23b",
+    "#e76f51",
+    "#b8627d",
+    "#8a6fb0",
+    "#4c9f70",
+    "#c98a3b",
+    "#6c7a89",
+]
+SEGMENT_COLOR = {zh: _PAL[i % len(_PAL)] for i, zh in enumerate(SEGMENT_ZH.values())}
+
+# 國名 → ISO-3 代碼(用 ISO-3 上色,避免 plotly 'country names' 的相容性警告)。
+# 未列入的名稱(Channel Islands、Unspecified 等)會自動從地圖略過。
+COUNTRY_ISO3 = {
+    "United Kingdom": "GBR",
+    "EIRE": "IRL",
+    "Netherlands": "NLD",
+    "Germany": "DEU",
+    "France": "FRA",
+    "Australia": "AUS",
+    "Spain": "ESP",
+    "Switzerland": "CHE",
+    "Sweden": "SWE",
+    "Denmark": "DNK",
+    "Belgium": "BEL",
+    "Portugal": "PRT",
+    "Japan": "JPN",
+    "Norway": "NOR",
+    "Italy": "ITA",
+    "Finland": "FIN",
+    "Cyprus": "CYP",
+    "Austria": "AUT",
+    "Greece": "GRC",
+    "Singapore": "SGP",
+    "Israel": "ISR",
+    "Poland": "POL",
+    "United Arab Emirates": "ARE",
+    "USA": "USA",
+    "Iceland": "ISL",
+    "Lithuania": "LTU",
+    "Malta": "MLT",
+    "Canada": "CAN",
+    "Thailand": "THA",
+    "RSA": "ZAF",
+    "Lebanon": "LBN",
+    "Brazil": "BRA",
+    "Bahrain": "BHR",
+    "Korea": "KOR",
+    "Czech Republic": "CZE",
+    "Saudi Arabia": "SAU",
+    "Nigeria": "NGA",
+}
 
 st.set_page_config(page_title="消費者智慧儀表板", page_icon="📊", layout="wide")
 
@@ -57,16 +113,22 @@ st.markdown(
 )
 
 
+# ---- 資料抓取:快取 + 冷啟動友善訊息(#1, #5) -------------------------
+@st.cache_data(ttl=300, show_spinner="資料載入中…")
+def _get(url: str, params_items: tuple) -> object | None:
+    resp = requests.get(url, params=dict(params_items), timeout=25)
+    if resp.status_code == 404:
+        return None
+    resp.raise_for_status()
+    return resp.json()
+
+
 def api_get(path: str, **params) -> object | None:
     try:
-        r = requests.get(f"{API_URL}{path}", params=params, timeout=20)
-    except requests.RequestException as exc:
-        st.error(f"無法連線到 API({API_URL}):{exc}")
+        return _get(f"{API_URL}{path}", tuple(sorted(params.items())))
+    except requests.RequestException:
+        st.warning("⏳ 服務可能正在喚醒(免費方案閒置會休眠),請稍候數秒後重新整理頁面。")
         return None
-    if r.status_code == 404:
-        return None
-    r.raise_for_status()
-    return r.json()
 
 
 def money(x: float | None) -> str:
@@ -87,6 +149,15 @@ def bare(fig, h=360):
     return fig
 
 
+def selected_rows(event) -> list[int]:
+    """從 st.dataframe 的選取結果取出被點選的列索引(相容不同版本)。"""
+    try:
+        sel = event.selection
+        return list(sel["rows"]) if isinstance(sel, dict) else list(sel.rows)
+    except Exception:
+        return []
+
+
 # ---- 標題列 -------------------------------------------------------------
 st.title("📊 消費者智慧儀表板")
 health = api_get("/health")
@@ -97,7 +168,7 @@ if health:
         unsafe_allow_html=True,
     )
 
-tab_seg, tab_cust, tab_prod = st.tabs(["客群總覽", "客戶分析", "產品分析"])
+tab_seg, tab_cust, tab_prod, tab_trend = st.tabs(["客群總覽", "客戶分析", "產品分析", "趨勢與地區"])
 
 # ======================================================================
 # 客群總覽
@@ -133,9 +204,10 @@ with tab_seg:
                 y="客群",
                 orientation="h",
                 labels={"total_revenue": "營收(£)", "客群": ""},
-                color="total_revenue",
-                color_continuous_scale=BLUES,
+                color="客群",
+                color_discrete_map=SEGMENT_COLOR,
             )
+            fig.update_layout(showlegend=False)
             st.plotly_chart(bare(fig, 380), use_container_width=True)
         with col_r:
             title("營收占比")
@@ -144,13 +216,14 @@ with tab_seg:
                 values="total_revenue",
                 names="客群",
                 hole=0.5,
-                color_discrete_sequence=SEQ,
+                color="客群",
+                color_discrete_map=SEGMENT_COLOR,
             )
             fig.update_traces(textposition="inside", textinfo="percent")
             fig.update_layout(
                 height=380,
                 margin=dict(l=0, r=0, t=8, b=0),
-                legend=dict(font=dict(size=10), orientation="v"),
+                legend=dict(font=dict(size=10)),
             )
             st.plotly_chart(fig, use_container_width=True)
 
@@ -163,7 +236,7 @@ with tab_seg:
             color="客群",
             text="客群",
             size_max=60,
-            color_discrete_sequence=SEQ,
+            color_discrete_map=SEGMENT_COLOR,
             labels={"customers": "客戶數", "avg_predicted_clv": "平均預估 CLV(£)"},
         )
         fig.update_traces(textposition="top center", textfont_size=10)
@@ -181,107 +254,33 @@ with tab_seg:
                 y="customer_id",
                 orientation="h",
                 color="客群",
-                color_discrete_sequence=SEQ,
+                color_discrete_map=SEGMENT_COLOR,
                 labels={"predicted_clv": "預估 CLV(£)", "customer_id": "客戶編號"},
             )
             fig.update_layout(height=430, margin=dict(l=0, r=0, t=8, b=0), plot_bgcolor="white")
             st.plotly_chart(fig, use_container_width=True)
 
-        with st.expander("客群明細表"):
-            show = df[
-                ["客群", "customers", "total_revenue", "avg_predicted_clv", "avg_prob_alive"]
-            ].rename(
-                columns={
-                    "customers": "客戶數",
-                    "total_revenue": "營收",
-                    "avg_predicted_clv": "平均預估CLV",
-                    "avg_prob_alive": "平均存活機率",
-                }
-            )
-            st.dataframe(show, use_container_width=True, hide_index=True)
-
 # ======================================================================
-# 客戶分析
+# 客戶分析(查詢 + 可點選的瀏覽表 #2 #4)
 # ======================================================================
 with tab_cust:
-    st.markdown("#### 查詢單一客戶(輸入客戶編號)")
-    cid = st.text_input("客戶編號", value="12347")
-    if cid:
-        profile = api_get(f"/customers/{cid}")
-        if profile is None:
-            st.warning(f"查無客戶 {cid}。")
-        else:
-            seg = segment_zh(profile.get("segment"))
-            clu = CLUSTER_ZH.get(profile.get("cluster_name") or "", profile.get("cluster_name"))
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("客群", seg)
-            c2.metric("預估 CLV", money(profile.get("predicted_clv")))
-            c3.metric("存活機率", f"{(profile.get('prob_alive') or 0):.0%}")
-            prop = profile.get("propensity")
-            c4.metric("90 天回購傾向", f"{prop:.0%}" if prop is not None else "—")
+    st.session_state.setdefault("cid", "12347")
+    st.markdown("#### 查詢客戶")
+    with st.form("form_cust"):
+        col_a, col_b = st.columns([3, 1])
+        typed = col_a.text_input("客戶編號", value=st.session_state["cid"])
+        if col_b.form_submit_button("查詢", use_container_width=True):
+            st.session_state["cid"] = (typed or "").strip()
 
-            col_l, col_r = st.columns([2, 3])
-            with col_l:
-                title("RFM 概況")
-                st.metric("最近購買(天)", f"{profile.get('recency') or 0:,}")
-                st.metric("購買次數", f"{profile.get('frequency') or 0:,}")
-                st.metric("累積消費", money(profile.get("monetary")))
-                st.markdown(f"<span class='caption-dim'>分群:{clu}</span>", unsafe_allow_html=True)
-            with col_r:
-                title("存活機率 / 回購傾向")
-                fig = go.Figure()
-                fig.add_trace(
-                    go.Indicator(
-                        mode="gauge+number",
-                        value=(profile.get("prob_alive") or 0) * 100,
-                        title={"text": "存活機率 (%)"},
-                        domain={"row": 0, "column": 0},
-                        gauge={"axis": {"range": [0, 100]}, "bar": {"color": TEAL}},
-                    )
-                )
-                if prop is not None:
-                    fig.add_trace(
-                        go.Indicator(
-                            mode="gauge+number",
-                            value=prop * 100,
-                            title={"text": "回購傾向 (%)"},
-                            domain={"row": 0, "column": 1},
-                            gauge={"axis": {"range": [0, 100]}, "bar": {"color": AMBER}},
-                        )
-                    )
-                    fig.update_layout(grid={"rows": 1, "columns": 2})
-                fig.update_layout(height=240, margin=dict(l=20, r=20, t=40, b=10))
-                st.plotly_chart(fig, use_container_width=True)
-
-            title("AI 洞察")
-            insight = api_get(f"/customers/{cid}/insight")
-            if insight:
-                rl = insight["risk_level"]
-                pill = (
-                    f"<span class='risk-pill' style='background:{RISK_COLOR.get(rl, SLATE)}'>"
-                    f"流失風險:{RISK_ZH.get(rl, rl)}</span>"
-                )
-                obs = "".join(f"<li>{o}</li>" for o in insight["observations"])
-                act = "".join(f"<li>{a}</li>" for a in insight["recommended_actions"])
-                st.markdown(
-                    f"<div class='insight-card'>"
-                    f"<div style='font-size:1.05rem;font-weight:700;margin-bottom:6px'>"
-                    f"{insight['headline']}</div>{pill}"
-                    f"<div style='margin-top:10px'><b>觀察</b><ul>{obs}</ul></div>"
-                    f"<div><b>建議行動</b><ul>{act}</ul></div></div>",
-                    unsafe_allow_html=True,
-                )
-                st.markdown(
-                    "<span class='caption-dim'>數字皆由後端計算,AI 僅負責敘述(grounded)。</span>",
-                    unsafe_allow_html=True,
-                )
-
-    st.markdown("#### 客戶瀏覽表(消費金額前 100 名,可從中找客戶編號)")
+    st.markdown(
+        "<span class='caption-dim'>或點選下表任一列即可查詢。</span>",
+        unsafe_allow_html=True,
+    )
     clist = api_get("/customers", limit=100)
     if clist:
         cdf = pd.DataFrame(clist)
         cdf["客群"] = cdf["segment"].map(segment_zh)
-        show = cdf[
+        disp = cdf[
             [
                 "customer_id",
                 "客群",
@@ -291,17 +290,100 @@ with tab_cust:
                 "predicted_clv",
                 "propensity",
             ]
-        ].rename(
-            columns={
-                "customer_id": "客戶編號",
-                "recency": "最近購買(天)",
-                "frequency": "購買次數",
-                "monetary": "累積消費",
-                "predicted_clv": "預估CLV",
-                "propensity": "回購傾向",
-            }
+        ]
+        ev = st.dataframe(
+            disp,
+            key="tbl_cust",
+            on_select="rerun",
+            selection_mode="single-row",
+            use_container_width=True,
+            hide_index=True,
+            height=280,
+            column_config={
+                "customer_id": st.column_config.TextColumn("客戶編號"),
+                "recency": st.column_config.NumberColumn("最近購買(天)"),
+                "frequency": st.column_config.NumberColumn("購買次數"),
+                "monetary": st.column_config.NumberColumn("累積消費", format="£%d"),
+                "predicted_clv": st.column_config.NumberColumn("預估CLV", format="£%d"),
+                "propensity": st.column_config.NumberColumn("回購傾向", format="%.0f%%"),
+            },
         )
-        st.dataframe(show, use_container_width=True, hide_index=True, height=320)
+        rows = selected_rows(ev)
+        if rows and rows[0] < len(cdf):
+            st.session_state["cid"] = str(cdf.iloc[rows[0]]["customer_id"])
+
+    cid = st.session_state["cid"]
+    profile = api_get(f"/customers/{cid}") if cid else None
+    if cid and profile is None:
+        st.warning(f"查無客戶 {cid}。")
+    elif profile:
+        st.markdown(f"### 客戶 {cid}")
+        seg = segment_zh(profile.get("segment"))
+        clu = CLUSTER_ZH.get(profile.get("cluster_name") or "", profile.get("cluster_name"))
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("客群", seg)
+        c2.metric("預估 CLV", money(profile.get("predicted_clv")))
+        c3.metric("存活機率", f"{(profile.get('prob_alive') or 0):.0%}")
+        prop = profile.get("propensity")
+        c4.metric("90 天回購傾向", f"{prop:.0%}" if prop is not None else "—")
+
+        col_l, col_r = st.columns([2, 3])
+        with col_l:
+            title("RFM 概況")
+            st.metric("最近購買(天)", f"{profile.get('recency') or 0:,}")
+            st.metric("購買次數", f"{profile.get('frequency') or 0:,}")
+            st.metric("累積消費", money(profile.get("monetary")))
+            st.markdown(f"<span class='caption-dim'>分群:{clu}</span>", unsafe_allow_html=True)
+        with col_r:
+            title("存活機率 / 回購傾向")
+            fig = go.Figure()
+            fig.add_trace(
+                go.Indicator(
+                    mode="gauge+number",
+                    value=(profile.get("prob_alive") or 0) * 100,
+                    title={"text": "存活機率 (%)"},
+                    domain={"row": 0, "column": 0},
+                    gauge={"axis": {"range": [0, 100]}, "bar": {"color": TEAL}},
+                )
+            )
+            if prop is not None:
+                fig.add_trace(
+                    go.Indicator(
+                        mode="gauge+number",
+                        value=prop * 100,
+                        title={"text": "回購傾向 (%)"},
+                        domain={"row": 0, "column": 1},
+                        gauge={"axis": {"range": [0, 100]}, "bar": {"color": AMBER}},
+                    )
+                )
+                fig.update_layout(grid={"rows": 1, "columns": 2})
+            fig.update_layout(height=240, margin=dict(l=20, r=20, t=40, b=10))
+            st.plotly_chart(fig, use_container_width=True)
+
+        title("AI 洞察")
+        insight = api_get(f"/customers/{cid}/insight")
+        if insight:
+            rl = insight["risk_level"]
+            pill = (
+                f"<span class='risk-pill' style='background:{RISK_COLOR.get(rl, SLATE)}'>"
+                f"流失風險:{RISK_ZH.get(rl, rl)}</span>"
+            )
+            # #7:LLM/動態文字先 escape 再進 HTML,避免注入
+            head = html.escape(insight["headline"])
+            obs = "".join(f"<li>{html.escape(o)}</li>" for o in insight["observations"])
+            act = "".join(f"<li>{html.escape(a)}</li>" for a in insight["recommended_actions"])
+            st.markdown(
+                f"<div class='insight-card'>"
+                f"<div style='font-size:1.05rem;font-weight:700;margin-bottom:6px'>{head}</div>"
+                f"{pill}"
+                f"<div style='margin-top:10px'><b>觀察</b><ul>{obs}</ul></div>"
+                f"<div><b>建議行動</b><ul>{act}</ul></div></div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                "<span class='caption-dim'>數字皆由後端計算,AI 僅負責敘述(grounded)。</span>",
+                unsafe_allow_html=True,
+            )
 
 # ======================================================================
 # 產品分析
@@ -330,9 +412,8 @@ with tab_prod:
         st.plotly_chart(bare(fig, 460), use_container_width=True)
 
         st.markdown("#### 營收 × 銷售數量(泡泡大小 = 購買客戶數,前 60 大)")
-        b = pdf.head(60)
         fig = px.scatter(
-            b,
+            pdf.head(60),
             x="quantity",
             y="revenue",
             size="customers",
@@ -343,34 +424,54 @@ with tab_prod:
         )
         st.plotly_chart(bare(fig, 420), use_container_width=True)
 
-        st.markdown("#### 商品瀏覽表(營收前 100 名,可從中找商品代碼)")
-        show = pdf.head(100)[
-            ["stock_code", "description", "revenue", "quantity", "orders", "customers"]
-        ].rename(
-            columns={
-                "stock_code": "商品代碼",
-                "description": "品名",
-                "revenue": "營收",
-                "quantity": "銷售數量",
-                "orders": "訂單數",
-                "customers": "購買客戶數",
-            }
-        )
-        st.dataframe(show, use_container_width=True, hide_index=True, height=320)
+    st.session_state.setdefault("pcode", "20725")
+    st.markdown("#### 查詢商品 + 下一步最佳推薦")
+    with st.form("form_prod"):
+        col_a, col_b = st.columns([3, 1])
+        typed = col_a.text_input("商品代碼", value=st.session_state["pcode"])
+        if col_b.form_submit_button("查詢", use_container_width=True):
+            st.session_state["pcode"] = (typed or "").strip()
 
-    st.markdown("#### 查詢單一商品 + 下一步最佳推薦(輸入商品代碼)")
-    code = st.text_input("商品代碼", value="20725")
-    if code:
-        detail = api_get(f"/products/{code}")
-        if detail is None:
-            st.warning(f"查無商品 {code}。")
-        else:
-            st.markdown(f"**{detail['stock_code']} — {detail.get('description') or ''}**")
-            d1, d2, d3, d4 = st.columns(4)
-            d1.metric("營收", money(detail.get("revenue")))
-            d2.metric("銷售數量", f"{detail.get('quantity') or 0:,}")
-            d3.metric("訂單數", f"{detail.get('orders') or 0:,}")
-            d4.metric("購買客戶數", f"{detail.get('customers') or 0:,}")
+    st.markdown(
+        "<span class='caption-dim'>或點選下表任一列即可查詢。</span>",
+        unsafe_allow_html=True,
+    )
+    if prods:
+        disp = pdf.head(100)[
+            ["stock_code", "description", "revenue", "quantity", "orders", "customers"]
+        ]
+        ev = st.dataframe(
+            disp,
+            key="tbl_prod",
+            on_select="rerun",
+            selection_mode="single-row",
+            use_container_width=True,
+            hide_index=True,
+            height=280,
+            column_config={
+                "stock_code": st.column_config.TextColumn("商品代碼"),
+                "description": st.column_config.TextColumn("品名", width="large"),
+                "revenue": st.column_config.NumberColumn("營收", format="£%d"),
+                "quantity": st.column_config.NumberColumn("銷售數量"),
+                "orders": st.column_config.NumberColumn("訂單數"),
+                "customers": st.column_config.NumberColumn("購買客戶數"),
+            },
+        )
+        rows = selected_rows(ev)
+        if rows and rows[0] < len(pdf):
+            st.session_state["pcode"] = str(pdf.iloc[rows[0]]["stock_code"])
+
+    code = st.session_state["pcode"]
+    detail = api_get(f"/products/{code}") if code else None
+    if code and detail is None:
+        st.warning(f"查無商品 {code}。")
+    elif detail:
+        st.markdown(f"### {detail['stock_code']} — {detail.get('description') or ''}")
+        d1, d2, d3, d4 = st.columns(4)
+        d1.metric("營收", money(detail.get("revenue")))
+        d2.metric("銷售數量", f"{detail.get('quantity') or 0:,}")
+        d3.metric("訂單數", f"{detail.get('orders') or 0:,}")
+        d4.metric("購買客戶數", f"{detail.get('customers') or 0:,}")
 
         recs = api_get(f"/products/{code}/next-best-offer", limit=10)
         if not recs:
@@ -388,17 +489,109 @@ with tab_prod:
                 labels={"lift": "提升度 (lift)", "consequents": "推薦商品"},
             )
             st.plotly_chart(bare(fig, 360), use_container_width=True)
-            show = rdf[["consequents", "support", "confidence", "lift"]].rename(
-                columns={
-                    "consequents": "推薦商品",
-                    "support": "支持度",
-                    "confidence": "信心度",
-                    "lift": "提升度",
-                }
+            st.dataframe(
+                rdf[["consequents", "support", "confidence", "lift"]],
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "consequents": st.column_config.TextColumn("推薦商品", width="large"),
+                    "support": st.column_config.NumberColumn("支持度", format="%.3f"),
+                    "confidence": st.column_config.NumberColumn("信心度", format="%.2f"),
+                    "lift": st.column_config.NumberColumn("提升度", format="%.1f"),
+                },
             )
-            st.dataframe(show, use_container_width=True, hide_index=True)
-            st.markdown(
-                "<span class='caption-dim'>提升度 > 1 代表兩商品同時出現的機率,"
-                "高於各自獨立時的預期。</span>",
-                unsafe_allow_html=True,
-            )
+
+# ======================================================================
+# 趨勢與地區
+# ======================================================================
+with tab_trend:
+    monthly = api_get("/analytics/monthly")
+    if monthly:
+        mdf = pd.DataFrame(monthly)
+        peak = mdf.loc[mdf["revenue"].idxmax()]
+        c1, c2, c3 = st.columns(3)
+        c1.metric("涵蓋月份", f"{len(mdf)} 個月")
+        c2.metric("月營收高峰", money(peak["revenue"]))
+        c3.metric("高峰月份", str(peak["month"]))
+
+        st.markdown("#### 月營收趨勢")
+        fig = px.area(
+            mdf,
+            x="month",
+            y="revenue",
+            markers=True,
+            labels={"month": "月份", "revenue": "營收(£)"},
+            color_discrete_sequence=[TEAL],
+        )
+        fig.update_traces(line=dict(width=2), fillcolor="rgba(42,157,143,.15)")
+        st.plotly_chart(bare(fig, 360), use_container_width=True)
+
+        st.markdown("#### 月訂單數與下單客戶數")
+        long = mdf.melt(
+            id_vars="month",
+            value_vars=["orders", "customers"],
+            var_name="指標",
+            value_name="數量",
+        )
+        long["指標"] = long["指標"].map({"orders": "訂單數", "customers": "下單客戶數"})
+        fig = px.line(
+            long,
+            x="month",
+            y="數量",
+            color="指標",
+            markers=True,
+            color_discrete_sequence=[NAVY, AMBER],
+            labels={"month": "月份"},
+        )
+        st.plotly_chart(bare(fig, 340), use_container_width=True)
+
+    st.markdown("#### 各國分布")
+    mc1, mc2 = st.columns([2, 1])
+    metric_label = mc1.selectbox("上色指標", ["營收", "訂單數", "下單客戶數"], index=0)
+    drop_uk = mc2.checkbox("排除英國", value=False)
+    metric = {"營收": "revenue", "訂單數": "orders", "下單客戶數": "customers"}[metric_label]
+    countries = api_get("/analytics/countries", limit=50)
+    if countries:
+        cdf = pd.DataFrame(countries)
+        if drop_uk:
+            cdf = cdf[cdf["country"] != "United Kingdom"]
+        mapdf = cdf.copy()
+        mapdf["iso3"] = mapdf["country"].map(COUNTRY_ISO3)
+        mapdf = mapdf.dropna(subset=["iso3"])
+        fig = px.choropleth(
+            mapdf,
+            locations="iso3",
+            locationmode="ISO-3",
+            color=metric,
+            hover_name="country",
+            color_continuous_scale="Plasma",
+            labels={"revenue": "營收(£)", "orders": "訂單數", "customers": "客戶數"},
+        )
+        fig.update_geos(
+            showframe=False,
+            showcoastlines=True,
+            coastlinecolor="#cfd8e3",
+            landcolor="#f2f5f9",
+            projection_type="natural earth",
+        )
+        fig.update_layout(height=470, margin=dict(l=0, r=0, t=8, b=0))
+        st.plotly_chart(fig, use_container_width=True)
+
+        show = cdf.head(15)[["country", "revenue", "orders", "customers"]]
+        st.dataframe(
+            show,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "country": st.column_config.TextColumn("國家"),
+                "revenue": st.column_config.NumberColumn("營收", format="£%d"),
+                "orders": st.column_config.NumberColumn("訂單數"),
+                "customers": st.column_config.NumberColumn("購買客戶數"),
+            },
+        )
+        st.markdown(
+            "<span class='caption-dim'>此資料集以英國為主(故地圖上英國最亮);"
+            "可勾選排除英國,或切換上色指標。部分非國家名稱(如 Channel Islands、"
+            "Unspecified)無法定位,已從地圖略過。</span>",
+            unsafe_allow_html=True,
+        )
