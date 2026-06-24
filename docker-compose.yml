@@ -42,10 +42,8 @@ services:
     ports:
       - "8501:8501"
     command: >
-      sh -c "pip install --no-cache-dir -e '.[app]' &&
-             streamlit run app/dashboard.py --server.address 0.0.0.0 --server.port 8501"
-    volumes:
-      - ./app:/app/app
+      sh -c "streamlit run app/dashboard.py
+             --server.address 0.0.0.0 --server.port 8501 --server.headless true"
 
 volumes:
   pgdata:

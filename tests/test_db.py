@@ -12,6 +12,18 @@ def test_count_customers(populated_engine):
         assert repository.count_customers(s) == 3
 
 
+def test_postgres_url_is_normalized_for_sqlalchemy():
+    from consumer_intel.db.engine import _normalize_url
+
+    # Render/Heroku style -> SQLAlchemy dialect+driver
+    assert _normalize_url("postgres://u:p@host:5432/db") == (
+        "postgresql+psycopg2://u:p@host:5432/db"
+    )
+    # already-correct and sqlite URLs pass through unchanged
+    assert _normalize_url("postgresql+psycopg2://x") == "postgresql+psycopg2://x"
+    assert _normalize_url("sqlite:///x.db") == "sqlite:///x.db"
+
+
 def test_get_customer_found(populated_engine):
     with Session(populated_engine) as s:
         row = repository.get_customer(s, "C1")

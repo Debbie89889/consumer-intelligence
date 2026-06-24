@@ -23,14 +23,26 @@ from consumer_intel import config
 DEFAULT_SQLITE_URL = f"sqlite:///{config.DATA_DIR / 'consumer_intel.db'}"
 
 
+def _normalize_url(url: str) -> str:
+    """Make a connection string SQLAlchemy-ready.
+
+    Managed Postgres providers (Render, Heroku, ...) hand out ``postgres://``,
+    but SQLAlchemy 2.x requires an explicit dialect+driver. Rewrite it to
+    ``postgresql+psycopg2://`` so the same code works locally and in the cloud.
+    """
+    if url.startswith("postgres://"):
+        return "postgresql+psycopg2://" + url[len("postgres://") :]
+    return url
+
+
 def database_url() -> str:
     """Resolve the database URL from the environment, defaulting to SQLite."""
-    return os.environ.get("DATABASE_URL", DEFAULT_SQLITE_URL)
+    return _normalize_url(os.environ.get("DATABASE_URL", DEFAULT_SQLITE_URL))
 
 
 def make_engine(url: str | None = None) -> Engine:
     """Create a SQLAlchemy engine for the given (or resolved) URL."""
-    resolved = url or database_url()
+    resolved = _normalize_url(url) if url else database_url()
     # check_same_thread is a SQLite-only concern (FastAPI uses threads).
     connect_args = {"check_same_thread": False} if resolved.startswith("sqlite") else {}
     return create_engine(resolved, connect_args=connect_args, future=True)

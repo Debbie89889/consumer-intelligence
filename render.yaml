@@ -1,0 +1,44 @@
+# Render Blueprint — one-click deploy of the whole stack.
+# Render > New > Blueprint > pick this repo. It provisions a managed Postgres,
+# an API web service and a Streamlit dashboard web service, all from the same
+# Docker image (different start commands).
+#
+# After the first deploy, set the dashboard's API_URL to the API service's
+# public URL (https://<api-service>.onrender.com) — see README/deploy notes.
+#
+# Note: plan names and free-tier terms change; check current Render docs.
+
+databases:
+  - name: consumer-intel-db
+    plan: free
+    databaseName: intel
+    user: intel
+
+services:
+  - type: web
+    name: consumer-intel-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    # Load the precomputed outputs into Postgres on boot, then serve the API.
+    dockerCommand: sh -c "python scripts/load_db.py && uvicorn consumer_intel.api.app:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: consumer-intel-db
+          property: connectionString
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      # Optional: add OPENAI_API_KEY or ANTHROPIC_API_KEY here to enable LLM
+      # narration (otherwise the Copilot uses the deterministic template).
+
+  - type: web
+    name: consumer-intel-dashboard
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerCommand: sh -c "streamlit run app/dashboard.py --server.port $PORT --server.address 0.0.0.0 --server.headless true"
+    envVars:
+      - key: API_URL
+        sync: false  # set this to the API service's public URL after it deploys

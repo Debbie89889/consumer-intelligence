@@ -4,6 +4,12 @@ data/processed/*
 data/*.db
 !data/raw/.gitkeep
 !data/processed/.gitkeep
+# Small derived outputs committed so the deployed service has data
+# (no 95MB raw CSV / no re-running the pipeline needed in the cloud).
+!data/processed/customer_segments.parquet
+!data/processed/customer_clv.parquet
+!data/processed/propensity_scores.parquet
+!data/processed/association_rules.parquet
 reports/*.html
 
 # Python
