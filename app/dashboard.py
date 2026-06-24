@@ -403,12 +403,14 @@ with tab_cust:
 # 產品分析
 # ======================================================================
 with tab_prod:
+    overview = api_get("/analytics/products-overview")
     prods = api_get("/products", limit=500)
     if prods:
         pdf = pd.DataFrame(prods)
+        ov = overview or {}
         c1, c2, c3 = st.columns(3)
-        c1.metric("商品數(前 500 大)", f"{len(pdf):,}")
-        c2.metric("前 500 大商品總營收", money(pdf["revenue"].sum()))
+        c1.metric("商品總數", f"{ov.get('products', len(pdf)):,}")
+        c2.metric("所有商品總營收", money(ov.get("revenue")))
         c3.metric("最高營收商品", money(pdf["revenue"].max()))
 
         st.markdown("#### 營收最高的商品 Top 15")

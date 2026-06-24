@@ -198,3 +198,22 @@ def country_summary(session: Session, limit: int = 15) -> list[dict]:
         .all()
     )
     return [dict(r) for r in rows]
+
+
+def product_overview(session: Session) -> dict:
+    """Totals across all products (count, revenue, units) for the KPI row."""
+    row = (
+        session.execute(
+            text(
+                """
+                SELECT COUNT(*)      AS products,
+                       SUM(revenue)   AS revenue,
+                       SUM(quantity)  AS quantity
+                FROM products
+                """
+            )
+        )
+        .mappings()
+        .first()
+    )
+    return dict(row)

@@ -84,3 +84,9 @@ class CountrySummary(BaseModel):
     revenue: float | None = None
     orders: int | None = None
     customers: int | None = None
+
+
+class ProductsOverview(BaseModel):
+    products: int
+    revenue: float | None = None
+    quantity: int | None = None

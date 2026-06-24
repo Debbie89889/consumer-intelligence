@@ -107,3 +107,11 @@ def test_country_summary_orders_by_revenue(populated_engine):
     assert len(rows) == 2
     assert rows[0]["country"] == "United Kingdom"
     assert rows[0]["revenue"] >= rows[1]["revenue"]
+
+
+def test_product_overview(populated_engine):
+    with Session(populated_engine) as s:
+        ov = repository.product_overview(s)
+    assert ov["products"] == 3
+    assert ov["revenue"] == 42000.0
+    assert ov["quantity"] == 17000

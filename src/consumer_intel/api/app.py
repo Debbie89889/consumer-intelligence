@@ -84,6 +84,11 @@ def analytics_countries(
     return [models.CountrySummary(**r) for r in repository.country_summary(db, limit)]
 
 
+@app.get("/analytics/products-overview", response_model=models.ProductsOverview)
+def analytics_products_overview(db: Session = Depends(get_db)) -> models.ProductsOverview:
+    return models.ProductsOverview(**repository.product_overview(db))
+
+
 @app.get("/products", response_model=list[models.ProductSummary])
 def products(
     limit: int = Query(20, ge=1, le=500), db: Session = Depends(get_db)

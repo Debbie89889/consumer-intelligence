@@ -128,3 +128,11 @@ def test_analytics_countries(client):
     rows = r.json()
     assert len(rows) == 2
     assert rows[0]["country"] == "United Kingdom"
+
+
+def test_products_overview(client):
+    r = client.get("/analytics/products-overview")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["products"] == 3
+    assert body["revenue"] == 42000.0
