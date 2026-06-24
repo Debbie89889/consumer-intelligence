@@ -10,6 +10,7 @@ data/*.db
 !data/processed/customer_clv.parquet
 !data/processed/propensity_scores.parquet
 !data/processed/association_rules.parquet
+!data/processed/product_summary.parquet
 reports/*.html
 
 # Python

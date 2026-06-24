@@ -15,6 +15,7 @@ from consumer_intel import config
 
 CUSTOMERS_TABLE = "customers"
 RULES_TABLE = "rules"
+PRODUCTS_TABLE = "products"
 
 
 def build_customers_frame() -> pd.DataFrame:
@@ -72,10 +73,21 @@ def build_rules_frame() -> pd.DataFrame:
     return out
 
 
+def build_products_frame() -> pd.DataFrame:
+    """Per-product summary (revenue / units / orders / customers)."""
+    return pd.read_parquet(config.PROCESSED_DIR / "product_summary.parquet")
+
+
 def load_all(engine: Engine) -> dict[str, int]:
-    """Load both tables into the database (replacing existing). Returns row counts."""
+    """Load all tables into the database (replacing existing). Returns row counts."""
     customers = build_customers_frame()
     rules = build_rules_frame()
+    products = build_products_frame()
     customers.to_sql(CUSTOMERS_TABLE, engine, if_exists="replace", index=False)
     rules.to_sql(RULES_TABLE, engine, if_exists="replace", index=False)
-    return {CUSTOMERS_TABLE: len(customers), RULES_TABLE: len(rules)}
+    products.to_sql(PRODUCTS_TABLE, engine, if_exists="replace", index=False)
+    return {
+        CUSTOMERS_TABLE: len(customers),
+        RULES_TABLE: len(rules),
+        PRODUCTS_TABLE: len(products),
+    }

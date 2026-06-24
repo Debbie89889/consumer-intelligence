@@ -67,3 +67,29 @@ def test_next_best_offers_by_product(populated_engine):
 def test_next_best_offers_unknown_product(populated_engine):
     with Session(populated_engine) as s:
         assert repository.next_best_offers(s, "99999") == []
+
+
+def test_list_customers_browse(populated_engine):
+    with Session(populated_engine) as s:
+        rows = repository.list_customers(s, limit=10)
+    assert len(rows) == 3
+    # highest spend first (C2 monetary 8000)
+    assert rows[0]["customer_id"] == "C2"
+    assert "customer_id" in rows[0]
+
+
+def test_top_products_orders_by_revenue(populated_engine):
+    with Session(populated_engine) as s:
+        rows = repository.top_products(s, limit=2)
+    assert len(rows) == 2
+    assert rows[0]["stock_code"] == "85123A"  # highest revenue
+    assert rows[0]["revenue"] >= rows[1]["revenue"]
+
+
+def test_get_product(populated_engine):
+    with Session(populated_engine) as s:
+        prod = repository.get_product(s, "20725")
+        missing = repository.get_product(s, "NOPE")
+    assert prod is not None
+    assert prod["description"] == "LUNCH BAG RED"
+    assert missing is None

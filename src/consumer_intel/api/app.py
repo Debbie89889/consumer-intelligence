@@ -36,6 +36,13 @@ def health(db: Session = Depends(get_db)) -> models.HealthResponse:
     return models.HealthResponse(status="ok", customers=repository.count_customers(db))
 
 
+@app.get("/customers", response_model=list[models.CustomerListItem])
+def customers(
+    limit: int = Query(100, ge=1, le=1000), db: Session = Depends(get_db)
+) -> list[models.CustomerListItem]:
+    return [models.CustomerListItem(**r) for r in repository.list_customers(db, limit)]
+
+
 @app.get("/customers/top-clv", response_model=list[models.TopCustomer])
 def top_clv(
     limit: int = Query(20, ge=1, le=200), db: Session = Depends(get_db)
@@ -63,6 +70,21 @@ def customer_insight(customer_id: str, db: Session = Depends(get_db)) -> Custome
 @app.get("/segments", response_model=list[models.SegmentSummaryItem])
 def segments(db: Session = Depends(get_db)) -> list[models.SegmentSummaryItem]:
     return [models.SegmentSummaryItem(**r) for r in repository.segment_summary(db)]
+
+
+@app.get("/products", response_model=list[models.ProductSummary])
+def products(
+    limit: int = Query(20, ge=1, le=500), db: Session = Depends(get_db)
+) -> list[models.ProductSummary]:
+    return [models.ProductSummary(**r) for r in repository.top_products(db, limit)]
+
+
+@app.get("/products/{stock_code}", response_model=models.ProductSummary)
+def product(stock_code: str, db: Session = Depends(get_db)) -> models.ProductSummary:
+    row = repository.get_product(db, stock_code)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Product {stock_code} not found")
+    return models.ProductSummary(**row)
 
 
 @app.get(

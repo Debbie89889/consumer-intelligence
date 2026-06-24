@@ -192,4 +192,33 @@ def populated_engine(tmp_path):
     )
     customers.to_sql("customers", engine, index=False, if_exists="replace")
     rules.to_sql("rules", engine, index=False, if_exists="replace")
+    products = pd.DataFrame(
+        [
+            {
+                "stock_code": "20725",
+                "description": "LUNCH BAG RED",
+                "revenue": 12000.0,
+                "quantity": 5000,
+                "orders": 800,
+                "customers": 600,
+            },
+            {
+                "stock_code": "85123A",
+                "description": "WHITE HANGING HEART T-LIGHT HOLDER",
+                "revenue": 24000.0,
+                "quantity": 9000,
+                "orders": 1200,
+                "customers": 900,
+            },
+            {
+                "stock_code": "22384",
+                "description": "LUNCH BAG PINK",
+                "revenue": 6000.0,
+                "quantity": 3000,
+                "orders": 500,
+                "customers": 400,
+            },
+        ]
+    )
+    products.to_sql("products", engine, index=False, if_exists="replace")
     return engine

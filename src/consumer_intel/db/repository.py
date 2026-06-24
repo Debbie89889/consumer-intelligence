@@ -106,3 +106,63 @@ def next_best_offers(session: Session, stock_code: str, limit: int = 5) -> list[
 def count_customers(session: Session) -> int:
     """Total customers in the store (health/debug)."""
     return int(session.execute(text("SELECT COUNT(*) FROM customers")).scalar_one())
+
+
+def list_customers(session: Session, limit: int = 100) -> list[dict]:
+    """Browseable customer list (highest spend first) for finding an ID."""
+    rows = (
+        session.execute(
+            text(
+                """
+            SELECT customer_id, segment, recency, frequency, monetary,
+                   predicted_clv, propensity
+            FROM customers
+            ORDER BY monetary DESC
+            LIMIT :lim
+            """
+            ),
+            {"lim": limit},
+        )
+        .mappings()
+        .all()
+    )
+    return [dict(r) for r in rows]
+
+
+def top_products(session: Session, limit: int = 20) -> list[dict]:
+    """Highest-revenue products (also serves as the product browse list)."""
+    rows = (
+        session.execute(
+            text(
+                """
+            SELECT stock_code, description, revenue, quantity, orders, customers
+            FROM products
+            ORDER BY revenue DESC
+            LIMIT :lim
+            """
+            ),
+            {"lim": limit},
+        )
+        .mappings()
+        .all()
+    )
+    return [dict(r) for r in rows]
+
+
+def get_product(session: Session, stock_code: str) -> dict | None:
+    """Single product summary, or None if unknown."""
+    row = (
+        session.execute(
+            text(
+                """
+            SELECT stock_code, description, revenue, quantity, orders, customers
+            FROM products
+            WHERE stock_code = :code
+            """
+            ),
+            {"code": stock_code},
+        )
+        .mappings()
+        .first()
+    )
+    return dict(row) if row else None

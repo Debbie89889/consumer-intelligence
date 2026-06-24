@@ -34,3 +34,14 @@ CREATE TABLE IF NOT EXISTS rules (
 );
 
 CREATE INDEX IF NOT EXISTS idx_rules_antecedents ON rules (antecedents_codes);
+
+CREATE TABLE IF NOT EXISTS products (
+    stock_code   TEXT PRIMARY KEY,
+    description  TEXT,
+    revenue      DOUBLE PRECISION,
+    quantity     BIGINT,
+    orders       BIGINT,
+    customers    BIGINT
+);
+
+CREATE INDEX IF NOT EXISTS idx_products_revenue ON products (revenue DESC);

@@ -51,3 +51,22 @@ class NextBestOffer(BaseModel):
     support: float
     confidence: float
     lift: float
+
+
+class CustomerListItem(BaseModel):
+    customer_id: str
+    segment: str | None = None
+    recency: int | None = None
+    frequency: int | None = None
+    monetary: float | None = None
+    predicted_clv: float | None = None
+    propensity: float | None = None
+
+
+class ProductSummary(BaseModel):
+    stock_code: str
+    description: str | None = None
+    revenue: float | None = None
+    quantity: int | None = None
+    orders: int | None = None
+    customers: int | None = None

@@ -86,3 +86,30 @@ def test_top_clv_limit_validation(client):
     # limit above the allowed maximum -> 422 from FastAPI query validation
     r = client.get("/customers/top-clv", params={"limit": 9999})
     assert r.status_code == 422
+
+
+def test_customers_browse(client):
+    r = client.get("/customers", params={"limit": 10})
+    assert r.status_code == 200
+    rows = r.json()
+    assert len(rows) == 3
+    assert rows[0]["customer_id"] == "C2"  # highest monetary
+
+
+def test_products_list(client):
+    r = client.get("/products", params={"limit": 2})
+    assert r.status_code == 200
+    rows = r.json()
+    assert len(rows) == 2
+    assert rows[0]["stock_code"] == "85123A"
+
+
+def test_product_detail(client):
+    r = client.get("/products/20725")
+    assert r.status_code == 200
+    assert r.json()["description"] == "LUNCH BAG RED"
+
+
+def test_product_detail_404(client):
+    r = client.get("/products/NOPE")
+    assert r.status_code == 404
