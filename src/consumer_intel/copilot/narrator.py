@@ -1,16 +1,12 @@
-"""Turn grounded facts into a business narrative.
+"""把已算好的事實轉成商業敘述(繁體中文)。
 
-Two backends: a deterministic **template** narrator that needs no network, and
-a **LangChain** narrator that orchestrates the LLM call. The LLM is given only
-the pre-computed facts and is asked to *phrase* them; it returns a structured
-``NarratedInsight`` (validated by LangChain's ``with_structured_output``), so it
-can only fill the free-text fields — never the grounded numbers, segment or
-risk level, which Python owns. If no provider key is configured (or the call
-fails) we fall back to the template, so the endpoint always returns a valid,
-grounded insight.
+兩種後端:不需網路的**模板**敘述,以及由 **LangChain** orchestration 的 LLM 敘述。
+LLM 只負責「把事實用繁體中文講出來」並回傳結構化的 NarratedInsight(由
+with_structured_output 驗證),碰不到 grounded 的數字、客群或風險等級——那些一律
+由 Python 算好再組裝。沒設 provider key 或呼叫失敗時退回模板,確保離線/CI 可跑。
 
-Provider-agnostic: ``init_chat_model`` selects OpenAI or Anthropic from
-``LLM_PROVIDER`` / ``LLM_MODEL`` (or inferred from whichever API key is set).
+語言由 INSIGHT_LANGUAGE 環境變數控制,預設繁體中文。
+provider 由 init_chat_model 以 LLM_PROVIDER／LLM_MODEL(或依 API key 推斷)選擇。
 """
 
 from __future__ import annotations
@@ -18,13 +14,18 @@ from __future__ import annotations
 import os
 
 from consumer_intel.copilot.schema import CustomerInsight, InsightContext
+from consumer_intel.labels import action_zh, risk_zh, segment_zh
 
 Backend = str  # "auto" | "template" | "langchain"
 
+INSIGHT_LANGUAGE = os.environ.get("INSIGHT_LANGUAGE", "繁體中文")
+
 _SYSTEM = (
-    "You are a retail analytics assistant. You are given PRE-COMPUTED facts about "
-    "one customer. Restate them as a short business insight. Do NOT invent, "
-    "recompute or alter any numbers — only phrase the facts provided."
+    "你是一位零售數據分析助理。你會收到關於某位顧客的『已計算好的事實』。"
+    f"請用{INSIGHT_LANGUAGE}把這些事實改寫成簡潔的商業洞察,輸出 headline(字串)、"
+    "observations(字串陣列)與 recommended_actions(字串陣列)。"
+    "不要捏造或重新計算任何數字,只能根據提供的事實敘述。"
+    "客群名稱請使用事實中的 segment_zh(中文)。"
 )
 
 
@@ -33,30 +34,33 @@ def _money(x: float) -> str:
 
 
 def narrate_template(ctx: InsightContext) -> dict:
-    """Deterministic narration straight from the facts (no LLM)."""
+    """直接由事實產生的確定性敘述(不經 LLM),繁體中文。"""
+    seg = segment_zh(ctx.segment)
     headline = (
-        f"{ctx.segment} customer — {ctx.risk_level} churn risk, "
-        f"predicted value {_money(ctx.predicted_clv)}."
+        f"「{seg}」客群|流失風險{risk_zh(ctx.risk_level)}|預估價值 {_money(ctx.predicted_clv)}"
     )
     observations = [
-        f"Last purchase {ctx.recency_days} days ago across {ctx.frequency} orders "
-        f"totalling {_money(ctx.monetary)}.",
-        f"Probability still active: {ctx.prob_alive:.0%}.",
+        f"最近一次購買在 {ctx.recency_days} 天前,共 {ctx.frequency} 筆訂單,"
+        f"累積消費 {_money(ctx.monetary)}。",
+        f"仍為活躍客戶的機率:{ctx.prob_alive:.0%}。",
     ]
     if ctx.propensity is not None:
-        observations.append(f"Modelled 90-day repurchase propensity: {ctx.propensity:.0%}.")
+        observations.append(f"模型預估 90 天回購傾向:{ctx.propensity:.0%}。")
 
-    actions = [ctx.recommended_action] if ctx.recommended_action else []
+    actions: list[str] = []
+    mapped = action_zh(ctx.recommended_action)
+    if mapped:
+        actions.append(mapped)
     if ctx.next_best_offers:
-        actions.append("Cross-sell: " + ", ".join(ctx.next_best_offers[:3]) + ".")
+        actions.append("交叉銷售推薦:" + "、".join(ctx.next_best_offers[:3]) + "。")
     if not actions:
-        actions = ["No specific action; monitor."]
+        actions = ["暫無特別建議,持續觀察即可。"]
 
     return {"headline": headline, "observations": observations, "recommended_actions": actions}
 
 
 def _chat_model():
-    """Build a provider-agnostic LangChain chat model from the environment."""
+    """依環境變數建立 provider-agnostic 的 LangChain chat model。"""
     provider = os.environ.get("LLM_PROVIDER")
     model = os.environ.get("LLM_MODEL")
     if not provider:
@@ -65,10 +69,9 @@ def _chat_model():
         elif os.environ.get("OPENAI_API_KEY"):
             provider = "openai"
         else:
-            raise RuntimeError("No LLM provider configured (set OPENAI/ANTHROPIC key).")
+            raise RuntimeError("尚未設定 LLM provider(請設 OPENAI/ANTHROPIC key)。")
     if not model:
-        # Current cheap models (mid-2026). Override with LLM_MODEL if these get
-        # deprecated — check the provider's models page for the latest IDs.
+        # 目前(2026 年中)的便宜模型;若被淘汰請用 LLM_MODEL 覆蓋。
         model = "claude-haiku-4-5" if provider == "anthropic" else "gpt-4.1-mini"
 
     from langchain.chat_models import init_chat_model
@@ -77,22 +80,26 @@ def _chat_model():
 
 
 def narrate_langchain(ctx: InsightContext) -> dict:
-    """LLM narration orchestrated by LangChain, returning validated free text.
+    """由 LangChain orchestration 的 LLM 敘述,回傳已驗證的繁體中文文字。
 
-    Builds ``prompt | model.with_structured_output(NarratedInsight)`` so the
-    model's output is parsed and schema-validated by LangChain. Raises if no
-    provider/key is available (caller falls back to the template).
+    以 prompt | model.with_structured_output(NarratedInsight) 串接,讓輸出被 LangChain
+    解析並符合 schema。無 provider/key 時會丟出例外(由呼叫端退回模板)。
     """
+    import json
+
     from langchain_core.prompts import ChatPromptTemplate
 
     from consumer_intel.copilot.schema import NarratedInsight
 
+    facts = ctx.model_dump()
+    facts["segment_zh"] = segment_zh(ctx.segment)
+
     model = _chat_model()
     prompt = ChatPromptTemplate.from_messages(
-        [("system", _SYSTEM), ("human", "FACTS (JSON):\n{facts}\n\nWrite the insight.")]
+        [("system", _SYSTEM), ("human", "事實(JSON):\n{facts}\n\n請撰寫洞察。")]
     )
     chain = prompt | model.with_structured_output(NarratedInsight)
-    narrated: NarratedInsight = chain.invoke({"facts": ctx.model_dump_json()})
+    narrated: NarratedInsight = chain.invoke({"facts": json.dumps(facts, ensure_ascii=False)})
     return {
         "headline": narrated.headline,
         "observations": narrated.observations,
@@ -101,7 +108,7 @@ def narrate_langchain(ctx: InsightContext) -> dict:
 
 
 def _resolve_backend(backend: Backend) -> str:
-    """Pick a concrete backend; 'auto' uses LangChain only if a key is present."""
+    """決定實際後端;'auto' 僅在有 key 時用 LangChain,否則用模板。"""
     if backend != "auto":
         return backend
     if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENAI_API_KEY"):
@@ -110,10 +117,10 @@ def _resolve_backend(backend: Backend) -> str:
 
 
 def generate_insight(ctx: InsightContext, backend: Backend = "auto") -> CustomerInsight:
-    """Produce a validated :class:`CustomerInsight` from grounded facts.
+    """由 grounded 事實產生已驗證的 CustomerInsight。
 
-    The id, segment, risk level and grounding come from Python; only the free
-    text is narrated. Any LLM/LangChain failure degrades to the template.
+    id、客群、風險等級與 grounding 皆來自 Python,只有自由文字由敘述層產生;
+    任何 LLM/LangChain 失敗都會退回模板。
     """
     chosen = _resolve_backend(backend)
     try:

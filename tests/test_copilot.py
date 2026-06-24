@@ -132,5 +132,5 @@ def test_langchain_failure_falls_back_to_template(profile, monkeypatch):
     ctx = build_context(profile)
     insight = generate_insight(ctx, backend="langchain")  # must not raise
     assert isinstance(insight, CustomerInsight)
-    # fell back to the deterministic template headline
-    assert insight.headline.startswith("Champions customer")
+    # fell back to the deterministic template (zh-TW headline always has this)
+    assert "流失風險" in insight.headline
