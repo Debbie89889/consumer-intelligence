@@ -67,7 +67,9 @@ def _chat_model():
         else:
             raise RuntimeError("No LLM provider configured (set OPENAI/ANTHROPIC key).")
     if not model:
-        model = "claude-3-5-haiku-latest" if provider == "anthropic" else "gpt-4o-mini"
+        # Current cheap models (mid-2026). Override with LLM_MODEL if these get
+        # deprecated — check the provider's models page for the latest IDs.
+        model = "claude-haiku-4-5" if provider == "anthropic" else "gpt-4.1-mini"
 
     from langchain.chat_models import init_chat_model
 
