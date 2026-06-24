@@ -216,11 +216,6 @@ ruff check . && ruff format .
 
 > 註:雲端免費方案常有閒置休眠(首次請求較慢)與資料庫期限等限制,且各家條款時有調整,部署前請查當下文件。
 
----
-
-## 因果思維(誠實處理)
-
-本資料沒有實驗組／對照組,**無法做真正的 uplift / incrementality**,不在此 overclaim。若日後取得 treatment 資料(例如曾否收到某 offer),會以 A/B test 設計搭配 uplift modeling 量測增量效果——此處定位為「懂方法、不硬湊」。
 
 ---
 
