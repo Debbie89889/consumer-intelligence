@@ -248,16 +248,30 @@ with tab_seg:
         if top:
             tdf = pd.DataFrame(top)
             tdf["客群"] = tdf["segment"].map(segment_zh)
+            # 客戶編號是數字字串,加前綴並強制類別軸,避免被當數字縮寫成「16k」
+            tdf["客戶"] = "客戶 " + tdf["customer_id"].astype(str)
+            tdf = tdf.sort_values("predicted_clv")
             fig = px.bar(
-                tdf.sort_values("predicted_clv"),
+                tdf,
                 x="predicted_clv",
-                y="customer_id",
+                y="客戶",
                 orientation="h",
                 color="客群",
                 color_discrete_map=SEGMENT_COLOR,
-                labels={"predicted_clv": "預估 CLV(£)", "customer_id": "客戶編號"},
+                text=tdf["predicted_clv"].map(lambda v: f"£{v:,.0f}"),
+                custom_data=["prob_alive"],
+                labels={"predicted_clv": "預估 CLV(£)", "客戶": ""},
             )
-            fig.update_layout(height=430, margin=dict(l=0, r=0, t=8, b=0), plot_bgcolor="white")
+            fig.update_traces(
+                textposition="outside",
+                textfont_size=11,
+                cliponaxis=False,
+                hovertemplate="%{y}<br>預估 CLV:£%{x:,.0f}"
+                "<br>存活機率:%{customdata[0]:.0%}<extra></extra>",
+            )
+            fig.update_yaxes(type="category")
+            fig.update_xaxes(tickprefix="£", showgrid=True, gridcolor="#eef2f7")
+            fig.update_layout(height=480, margin=dict(l=0, r=60, t=8, b=0), plot_bgcolor="white")
             st.plotly_chart(fig, use_container_width=True)
 
 # ======================================================================
