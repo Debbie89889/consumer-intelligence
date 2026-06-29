@@ -64,6 +64,10 @@ Gamma-Gamma assumption check — frequency~monetary correlation = **0.0203** (cl
 
 ## Charts
 
-- `reports/clv_distribution.html`
-- `reports/clv_validation.html`
-- `reports/clv_by_segment.html`
+![Predicted CLV distribution](clv_distribution.png)
+*預估 CLV 分布(截至 99 百分位以利檢視)。*
+
+![Predicted CLV by segment](clv_by_segment.png)
+*各客群預估 CLV(對數軸):由 Hibernating 往 Champions 遞增。*
+
+> holdout 驗證(預測與實際購買次數相關 0.848、總量誤差 2.2%)見上方文字。

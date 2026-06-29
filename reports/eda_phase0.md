@@ -91,5 +91,8 @@
 
 ## Charts
 
-- `reports/monthly_revenue.html`
-- `reports/country_revenue.html`
+![Monthly revenue](monthly_revenue.png)
+*月營收趨勢。*
+
+![Revenue by country, top 15](country_revenue.png)
+*各國營收(前 15;英國為主)。*

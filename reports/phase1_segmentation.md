@@ -61,7 +61,14 @@ Chose **k = 4** (highest silhouette in the 3-8 range). Features: `log1p`-transfo
 
 ## Charts
 
-- `reports/rfm_segments_revenue.html`
-- `reports/kmeans_elbow.html`
-- `reports/kmeans_silhouette.html`
-- `reports/kmeans_scatter.html`
+![Revenue by RFM segment](rfm_segments_revenue.png)
+*各 RFM 客群的營收貢獻。*
+
+![Customer clusters](kmeans_scatter.png)
+*客戶在 Recency × Monetary 上的分布,顏色為 K-means 群集。*
+
+![K-means elbow](kmeans_elbow.png)
+*Elbow(慣性)。*
+
+![K-means silhouette](kmeans_silhouette.png)
+*Silhouette 分數。k=2 雖最高,但兩群對行銷分眾過於粗略;在 ≥3 群中 k=4 最佳,故選 k=4。*

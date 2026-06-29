@@ -6,20 +6,20 @@ Mined **944** association rules from 36,594 baskets over 562 frequent products (
 
 | antecedents                                                       | consequents                                                       |   support |   confidence |   lift |
 |:------------------------------------------------------------------|:------------------------------------------------------------------|----------:|-------------:|-------:|
-| POPPY'S PLAYHOUSE LIVINGROOM                                      | POPPY'S PLAYHOUSE BEDROOM  + POPPY'S PLAYHOUSE KITCHEN            |    0.0103 |        0.77  |   56.3 |
 | POPPY'S PLAYHOUSE BEDROOM  + POPPY'S PLAYHOUSE KITCHEN            | POPPY'S PLAYHOUSE LIVINGROOM                                      |    0.0103 |        0.75  |   56.3 |
+| POPPY'S PLAYHOUSE LIVINGROOM                                      | POPPY'S PLAYHOUSE BEDROOM  + POPPY'S PLAYHOUSE KITCHEN            |    0.0103 |        0.77  |   56.3 |
 | POPPY'S PLAYHOUSE LIVINGROOM  + POPPY'S PLAYHOUSE KITCHEN         | POPPY'S PLAYHOUSE BEDROOM                                         |    0.0103 |        0.868 |   53.9 |
 | POPPY'S PLAYHOUSE BEDROOM                                         | POPPY'S PLAYHOUSE LIVINGROOM  + POPPY'S PLAYHOUSE KITCHEN         |    0.0103 |        0.637 |   53.9 |
-| POPPY'S PLAYHOUSE BEDROOM  + POPPY'S PLAYHOUSE LIVINGROOM         | POPPY'S PLAYHOUSE KITCHEN                                         |    0.0103 |        0.927 |   51.9 |
 | POPPY'S PLAYHOUSE KITCHEN                                         | POPPY'S PLAYHOUSE BEDROOM  + POPPY'S PLAYHOUSE LIVINGROOM         |    0.0103 |        0.575 |   51.9 |
+| POPPY'S PLAYHOUSE BEDROOM  + POPPY'S PLAYHOUSE LIVINGROOM         | POPPY'S PLAYHOUSE KITCHEN                                         |    0.0103 |        0.927 |   51.9 |
 | POPPY'S PLAYHOUSE LIVINGROOM                                      | POPPY'S PLAYHOUSE BEDROOM                                         |    0.0111 |        0.83  |   51.5 |
 | POPPY'S PLAYHOUSE BEDROOM                                         | POPPY'S PLAYHOUSE LIVINGROOM                                      |    0.0111 |        0.687 |   51.5 |
 | POPPY'S PLAYHOUSE LIVINGROOM                                      | POPPY'S PLAYHOUSE KITCHEN                                         |    0.0118 |        0.887 |   49.7 |
 | POPPY'S PLAYHOUSE KITCHEN                                         | POPPY'S PLAYHOUSE LIVINGROOM                                      |    0.0118 |        0.662 |   49.7 |
 | POPPY'S PLAYHOUSE KITCHEN                                         | POPPY'S PLAYHOUSE BEDROOM                                         |    0.0137 |        0.766 |   47.6 |
 | POPPY'S PLAYHOUSE BEDROOM                                         | POPPY'S PLAYHOUSE KITCHEN                                         |    0.0137 |        0.849 |   47.6 |
-| SET/6 RED SPOTTY PAPER PLATES                                     | SET/20 RED RETROSPOT PAPER NAPKINS  + SET/6 RED SPOTTY PAPER CUPS |    0.0104 |        0.517 |   44   |
 | SET/20 RED RETROSPOT PAPER NAPKINS  + SET/6 RED SPOTTY PAPER CUPS | SET/6 RED SPOTTY PAPER PLATES                                     |    0.0104 |        0.882 |   44   |
+| SET/6 RED SPOTTY PAPER PLATES                                     | SET/20 RED RETROSPOT PAPER NAPKINS  + SET/6 RED SPOTTY PAPER CUPS |    0.0104 |        0.517 |   44   |
 | BLUE  SPOTTY CUP                                                  | PINK  SPOTTY CUP                                                  |    0.0112 |        0.683 |   42.8 |
 
 ## Next Best Offer examples
@@ -65,4 +65,6 @@ Given a seed product, the engine returns the highest-lift products to recommend 
 | 20727       | LUNCH BAG  BLACK SKULL. |    8.9 |        0.172 |
 
 ## Charts
-- `reports/basket_rules_scatter.html`
+
+![Association rules](basket_rules_scatter.png)
+*關聯規則散布:support × confidence,以 lift 著色與大小編碼。*

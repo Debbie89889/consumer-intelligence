@@ -42,5 +42,4 @@ Higher ROC-AUC/PR-AUC is better; lower Brier (calibration error) is better. PR-A
 
 ## Charts
 
-- `reports/propensity_calibration.html`
-- `reports/propensity_shap.html`
+本階段不附效能圖檔。ROC 與校準若以 `propensity_scores.parquet`(全體樣本內分數)重繪會過度樂觀,與上方誠實的 holdout 測試結果(ROC-AUC 0.804)不一致;忠實重現需原始 train/test 切分,未隨倉庫提供。校準對照見上方表格,SHAP 重要特徵見內文。
