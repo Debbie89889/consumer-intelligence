@@ -1,4 +1,5 @@
 # Consumer Intelligence｜消費者智慧分析
+![CI](https://github.com/Debbie89889/consumer-intelligence/actions/workflows/ci.yml/badge.svg)
 
 以一份真實電商交易資料,建構涵蓋**客群分群、顧客終身價值（CLV）、Next Best Offer、購買傾向預測**的端到端分析,並產品化為 **PostgreSQL + FastAPI + Streamlit** 的可部署服務,附一層 grounded LLM 洞察 Copilot。個人專案,重點在可驗證的方法與完整的工程實作。
 
@@ -27,18 +28,6 @@
 ![趨勢 — 月營收與月訂單/下單客戶趨勢](assets/screenshots/trends-1.png)
 ![地區 — 各國營收世界地圖](assets/screenshots/trends-2.png)
 
-<!--
-  展示素材（補齊後取消註解即可顯示）：
-  1. 將四個分頁的截圖放入 assets/screenshots/（檔名如下）。
-  2. 將展示影片上傳 YouTube / Loom,連結填入最後一行。
-
-![客群總覽](assets/screenshots/01-overview.png)
-![客戶分析與 grounded AI 洞察](assets/screenshots/02-customer-insight.png)
-![產品分析與 Next Best Offer](assets/screenshots/03-products.png)
-![趨勢與各國營收地圖](assets/screenshots/04-trends-map.png)
-
-展示影片:https://...
--->
 
 
 ---
