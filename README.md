@@ -4,9 +4,28 @@
 
 **技術棧**：Python · pandas · scikit-learn · LightGBM · lifetimes · mlxtend · FastAPI · SQLAlchemy · LangChain · Streamlit · Plotly · Docker · pytest · GitHub Actions
 
+
+
 ## Demo
 
-為保護綁定的 LLM 金鑰,線上服務不公開網址。可 clone 後依「快速開始」於本機執行完整服務,或參考下方截圖與展示影片。
+為避免綁定的 LLM 金鑰遭誤用,線上服務未公開網址;可 clone 後依下方「快速開始」於本機完整執行(含 grounded LLM Copilot)。以下為各分頁截圖。
+
+### 客群總覽
+![客群總覽 — KPI、各客群營收與營收占比](assets/screenshots/overview-1.png)
+![客群總覽 — 客戶數 × 平均 CLV 分布、預估 CLV 最高客戶](assets/screenshots/overview-2.png)
+
+### 客戶分析
+![客戶分析 — 查詢/瀏覽客戶與單一客戶 KPI](assets/screenshots/customer-1.png)
+![客戶分析 — RFM、存活/回購儀表與 grounded AI 洞察](assets/screenshots/customer-2.png)
+
+### 產品分析
+![產品分析 — 商品 KPI 與營收 Top 15](assets/screenshots/product-1.png)
+![產品分析 — 營收 × 銷售數量分布與商品瀏覽](assets/screenshots/product-2.png)
+![產品分析 — 單品明細與 Next Best Offer](assets/screenshots/product-3.png)
+
+### 趨勢與地區
+![趨勢 — 月營收與月訂單/下單客戶趨勢](assets/screenshots/trends-1.png)
+![地區 — 各國營收世界地圖](assets/screenshots/trends-2.png)
 
 <!--
   展示素材（補齊後取消註解即可顯示）：
