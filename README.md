@@ -222,9 +222,9 @@ docker compose up    # 一次啟動 PostgreSQL + API + 前端
 
 ---
 
-## 開發中：LangGraph Copilot
+## LangGraph Copilot
 
-在既有的 LangChain LCEL Copilot（`copilot/`）之外,新增一套 **LangGraph agentic workflow**（`copilot_graph/`）,展示平行工具調用、條件路由、human-in-the-loop 審核與多輪對話狀態管理。兩套實作並存,LCEL 版本不變動;完成後會在此補上三種 orchestration 方式（手刻／LCEL／LangGraph）的完整比較。目前進度:
+在既有的 LangChain LCEL Copilot（`copilot/`）之外,新增一套 **LangGraph agentic workflow**（`copilot_graph/`）,展示平行工具調用、條件路由、human-in-the-loop 審核與多輪對話狀態管理。兩套實作並存,LCEL 版本完全不動——為什麼不直接把 LCEL 改成 LangGraph、兩套並存的理由寫在 CLAUDE.md。目前已完成:
 
 - **資料層**:新增 `conversations`／`messages`／`campaign_approvals` 三張業務表,以 SQLAlchemy ORM 建模、Alembic 管理版本(獨立於既有分析表的 pandas 載入流程)。
 - **客戶洞察 StateGraph**:`extract_context →(customer_id 可解析?)→ clarify／router →(存在?)→ not_found／(fetch_rfm ‖ fetch_clv ‖ fetch_nbo ‖ fetch_propensity)→ join → response_generator →(LLM 失敗時)→ fallback`。四個 fetch 節點平行執行、fan-in 後產生**對話式**的 grounded 回答(純文字,不是固定的 CustomerInsight 結構);查無客戶與客戶身分無法判斷時直接回傳確定性訊息,不進 LLM;LLM 呼叫失敗會經過顯式的 `fallback` 節點退回模板。`extract_context` 會從對話歷史(含代名詞,例如「他」「那位客戶」)解析出這一輪在問哪位客戶——多輪對話狀態存在 SQLAlchemy `messages` 表,由 `copilot_graph/chat.py` 的 `run_turn()` 每輪重建,這個 graph 本身不用 checkpointer。
@@ -267,6 +267,23 @@ campaign_intent → build_candidates → match_offers → draft_campaign
 - **審核**:LangGraph `interrupt()` + `Command(resume=...)`,checkpointer 用 `SqliteSaver`(本機)/`PostgresSaver`(正式);`campaign_approvals` 的審核紀錄(狀態、審核人、意見、時間)由 SQLAlchemy ORM 寫入,與 checkpointer 各自獨立(見 CLAUDE.md「資料持久化分層」)。
 
 前端新增「**待審核 Campaign**」分頁:產生草稿、瀏覽/編輯候選客戶名單(可勾選剔除、修改個別折扣)、填寫審核意見、核准／退回修改／終結三選一;核准後可下載名單 CSV。API 新增四個端點(見下方「API 端點」表)。
+
+### 一種 Copilot 實作的心得:LCEL vs. LangGraph
+
+這裡原本想比較三種 orchestration(手刻／LCEL／LangGraph),但手刻版本是另一個舊專案,這次沒有帶著它的程式碼一起看,與其憑印象编資料,不如老實只比這個 repo 裡真的並存的兩種實作——數字是真的量出來的,不是估的。
+
+| 面向 | LangChain LCEL(`copilot/`) | LangGraph(`copilot_graph/`) |
+|---|---|---|
+| 程式碼行數 | 275 行(3 個檔案) | 988 行(10 個檔案)+ 201 行資料層基礎設施(`checkpointer.py`／`campaign_repository.py`／`models.py`) |
+| 測試數 | 13 個 | 48 個 |
+| 並行支援 | 無,單次 `chain.invoke()` | 原生 fan-out(4 節點平行擷取);但本機 SQLite 上因無真實網路 I/O,平行版本反而比序列慢(見上方 benchmark) |
+| 執行持久化 | 無狀態,每次呼叫獨立 | 視流程而定:customer insight 對話歷史存 ORM、graph 本身不用 checkpointer;campaign 審核流程需要 checkpointer(`SqliteSaver`/`PostgresSaver`)才能 `interrupt()`/`resume()` |
+| 中斷(恢復)HITL | 不支援,沒有機制可以「停下來等人」 | 原生支援,是這個專案唯一真的需要 HITL 的地方(win-back campaign 發真的折扣) |
+| 可觀測性 | 黑盒;敘述失敗只能在外層包 try/except,看不到內部發生什麼 | `astream_events()` 給節點級別的開始/結束/token 事件;失敗路徑是圖上顯式的 `fallback` 節點,不是被吞掉的例外 |
+| 學習曲線／維護成本 | 低,一個函式接一個函式,新人一看就懂 | 高,要理解 StateGraph、reducer、conditional edges、interrupt 語意、checkpointer 生命週期 |
+| **什麼時候該用它** | 單一意圖、不需要中斷、不需要平行 I/O 的場景 | 需要 HITL、需要跨請求維持對話狀態、或有真正平行 I/O 可以重疊等待時間的場景 |
+
+這個專案讓兩套敘述層在同一個資料庫、同一組事實上做同一件事,差異因此清楚:LCEL 產生一句話就夠用時,LangGraph 完全是額外成本——要多學 StateGraph、reducer、conditional edge,還會踩到不顯而易見的坑(例如 `interrupt()` 前的程式碼在 `resume()` 時會重跑,不注意會意外重複寫入 DB,這是先寫小實驗才發現的,不是憑經驗猜到的)。平行 fan-out 在本機 SQLite 上甚至比序列還慢,因為沒有真正的網路 I/O 可以重疊,執行緒調度的開銷反而倒貼一筆。真正回本的地方只有兩個:win-back campaign 需要對「發真的折扣給真的客戶」這種不可逆動作停下來等人核准,這是 LCEL 原生做不到的;以及多輪對話需要跨請求維持狀態、並可觀測每個節點的執行過程。沒有這兩個理由,LangGraph 只是用更貴的方式做同一件事。
 
 ---
 

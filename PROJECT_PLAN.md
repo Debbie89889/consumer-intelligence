@@ -127,3 +127,7 @@ consumer-intelligence/
 - **核心(Phase 0–3)**:分群、CLV、購物籃 NBO——一份資料即可完成的零售分析主幹。
 - **加上 Phase 4**:補上 tree-based 分類與傾向建模,並做完整評估。
 - **加上 Phase 5**:產品化為可部署服務與互動儀表板,並加 grounded LLM Copilot——把分析變成可操作的產品。
+
+## 7. 後續延伸 — LangGraph Copilot ✅
+
+在 Phase 5 的 LangChain LCEL Copilot 之外,另外實作一套 LangGraph agentic workflow(平行工具調用、條件路由、win-back campaign 的 human-in-the-loop 審核、多輪對話 + SSE 串流),展示同一組 grounding 原則在不同 orchestration 框架下的實作方式。詳細階段規劃見 `PROMPT_langgraph_copilot.md`;成果與兩種實作的比較見 README「LangGraph Copilot」章節。
