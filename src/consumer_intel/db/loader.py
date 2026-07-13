@@ -18,6 +18,7 @@ RULES_TABLE = "rules"
 PRODUCTS_TABLE = "products"
 MONTHLY_TABLE = "monthly"
 COUNTRY_TABLE = "country"
+CUSTOMER_TOP_PRODUCT_TABLE = "customer_top_product"
 
 
 def build_customers_frame() -> pd.DataFrame:
@@ -90,6 +91,11 @@ def build_country_frame() -> pd.DataFrame:
     return pd.read_parquet(config.PROCESSED_DIR / "country_summary.parquet")
 
 
+def build_customer_top_product_frame() -> pd.DataFrame:
+    """Each customer's single highest-revenue product (drives per-customer NBO)."""
+    return pd.read_parquet(config.PROCESSED_DIR / "customer_top_product_summary.parquet")
+
+
 def load_all(engine: Engine) -> dict[str, int]:
     """Load all tables into the database (replacing existing). Returns row counts."""
     frames = {
@@ -98,6 +104,7 @@ def load_all(engine: Engine) -> dict[str, int]:
         PRODUCTS_TABLE: build_products_frame(),
         MONTHLY_TABLE: build_monthly_frame(),
         COUNTRY_TABLE: build_country_frame(),
+        CUSTOMER_TOP_PRODUCT_TABLE: build_customer_top_product_frame(),
     }
     for table, frame in frames.items():
         frame.to_sql(table, engine, if_exists="replace", index=False)

@@ -1,11 +1,13 @@
 """Build the compact serving summaries from the cleaned transactions.
 
-Produces three small parquet files the API serves from (the full transaction
-file is too large to ship to the cloud, so we precompute these):
+Produces small parquet files the API serves from (the full transaction file
+is too large to ship to the cloud, so we precompute these):
 
-* product_summary.parquet  — per product: revenue / units / orders / customers
-* monthly_summary.parquet  — per month:   revenue / orders / customers
-* country_summary.parquet  — per country: revenue / orders / customers
+* product_summary.parquet             — per product: revenue / units / orders / customers
+* monthly_summary.parquet             — per month:   revenue / orders / customers
+* country_summary.parquet             — per country: revenue / orders / customers
+* customer_top_product_summary.parquet — per customer: their single highest-revenue
+  product, used by the Copilot graph's per-customer Next Best Offer lookup
 
     python scripts/build_summaries.py
 """
@@ -49,6 +51,28 @@ def build_monthly(tx: pd.DataFrame) -> pd.DataFrame:
     return out.sort_values("month").reset_index(drop=True)
 
 
+def build_customer_top_product(tx: pd.DataFrame) -> pd.DataFrame:
+    """Each customer's single highest-revenue product.
+
+    Drives the Copilot graph's per-customer Next Best Offer lookup: the
+    ``rules`` table is keyed by a single antecedent product, so a customer-
+    level recommendation needs one representative product per customer.
+    Ties broken deterministically by ``StockCode`` (via ``idxmax`` on a
+    groupby-sorted frame).
+    """
+    g = (
+        tx.dropna(subset=["CustomerID"])
+        .groupby(["CustomerID", "StockCode"])["TotalPrice"]
+        .sum()
+        .reset_index()
+    )
+    top = g.loc[g.groupby("CustomerID")["TotalPrice"].idxmax()].reset_index(drop=True)
+    top = top.rename(
+        columns={"CustomerID": "customer_id", "StockCode": "stock_code", "TotalPrice": "revenue"}
+    )
+    return top.sort_values("customer_id").reset_index(drop=True)
+
+
 def build_country(tx: pd.DataFrame) -> pd.DataFrame:
     out = (
         tx.groupby("Country")
@@ -69,6 +93,7 @@ def main() -> None:
         "product_summary": build_products(tx),
         "monthly_summary": build_monthly(tx),
         "country_summary": build_country(tx),
+        "customer_top_product_summary": build_customer_top_product(tx),
     }.items():
         path = config.PROCESSED_DIR / f"{name}.parquet"
         frame.to_parquet(path, index=False)

@@ -210,9 +210,27 @@ docker compose up    # 一次啟動 PostgreSQL + API + 前端
 
 ## 測試與工程
 
-- 91 個 pytest,涵蓋清理規則、RFM、分群、CLV、關聯規則、傾向特徵與模型、SQL repository、FastAPI 端點,以及 Copilot 的 grounding 與 Pydantic 約束。
+- 98+ 個 pytest,涵蓋清理規則、RFM、分群、CLV、關聯規則、傾向特徵與模型、SQL repository、FastAPI 端點,以及 Copilot 的 grounding 與 Pydantic 約束。
 - 測試以 SQLite 與 FastAPI `TestClient` 進行,Copilot 走確定性模板路徑,不依賴 PostgreSQL 或真實 LLM 金鑰。
 - `ruff` 負責 lint 與格式化;GitHub Actions（`.github/workflows/ci.yml`）於每次 push 與 PR 執行 lint 與測試。
+
+---
+
+## 開發中：LangGraph Copilot
+
+在既有的 LangChain LCEL Copilot（`copilot/`）之外,新增一套 **LangGraph agentic workflow**（`copilot_graph/`）,展示平行工具調用、條件路由、human-in-the-loop 審核與多輪對話狀態管理。兩套實作並存,LCEL 版本不變動;完成後會在此補上三種 orchestration 方式（手刻／LCEL／LangGraph）的完整比較。目前進度:
+
+- **資料層**:新增 `conversations`／`messages`／`campaign_approvals` 三張業務表,以 SQLAlchemy ORM 建模、Alembic 管理版本(獨立於既有分析表的 pandas 載入流程)。
+- **StateGraph 骨架**:`router → (fetch_rfm ‖ fetch_clv ‖ fetch_nbo ‖ fetch_propensity) → join → response_generator`,四個 fetch 節點平行執行、fan-in 後沿用既有的 LCEL 敘述鏈產生洞察。
+
+**平行 fan-out 的 benchmark**(`python scripts/benchmark_copilot_graph.py`,30 位客戶、本機 SQLite、確定性模板路徑,排除 LLM 呼叫變異):
+
+| 版本 | p50 (ms) | p95 (ms) | mean (ms) |
+|---|---|---|---|
+| 序列(逐一呼叫四次查詢) | 2.28 | 3.00 | 2.37 |
+| LangGraph 平行 fan-out | 3.23 | 3.53 | 3.28 |
+
+**誠實的結論:在本機 SQLite 上,平行版本反而較慢。** SQLite 查詢在毫秒等級、幾乎不涉及真正的網路 I/O 等待(GIL 不太會因此釋放),LangGraph 的執行緒調度與 superstep 管理開銷因此蓋過了任何平行化收益。這個 fan-out 模式預期在正式環境(跨網路的 PostgreSQL,每次查詢有真實往返延遲)會有實際效益,但本開發環境沒有 Docker/Postgres 可用,尚未量測——之後接上正式資料庫後會補上對照數字,不先估算或美化。
 
 ---
 

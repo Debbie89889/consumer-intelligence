@@ -11,6 +11,20 @@ import pandas as pd
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _no_real_llm_keys(monkeypatch):
+    """Never let a locally-exported OpenAI/Anthropic key leak into tests.
+
+    ``generate_insight(backend="auto")`` calls a real, billed LLM whenever
+    one of these is set — CLAUDE.md requires tests to stay offline and
+    deterministic (template narration only). Without this, any dev/CI shell
+    that happens to export a real key would silently start making network
+    calls from the test suite.
+    """
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+
 @pytest.fixture
 def raw_sample() -> pd.DataFrame:
     """12 rows covering: valid sales, a duplicate, a cancellation, a return,
@@ -237,4 +251,11 @@ def populated_engine(tmp_path):
         ]
     )
     country.to_sql("country", engine, index=False, if_exists="replace")
+    customer_top_product = pd.DataFrame(
+        [
+            {"customer_id": "C1", "stock_code": "20725", "revenue": 3000.0},
+            {"customer_id": "C2", "stock_code": "99999", "revenue": 500.0},
+        ]
+    )
+    customer_top_product.to_sql("customer_top_product", engine, index=False, if_exists="replace")
     return engine
