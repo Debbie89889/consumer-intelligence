@@ -222,6 +222,7 @@ async def chat_stream(
     thread_id: str,
     message: str,
     graph: Any = Depends(get_customer_insight_graph),
+    session_factory: Any = Depends(get_session_factory),
 ) -> StreamingResponse:
     """Conversational customer Q&A, streamed as SSE.
 
@@ -231,7 +232,6 @@ async def chat_stream(
     are curated by streaming.sse_event_payload — see that module for the
     event schema and a known gap around LLM token-level streaming.
     """
-    session_factory = get_session_factory()
     history = load_history(session_factory, thread_id)
     state_in = initial_state(
         thread_id, customer_id=None, messages=[*history, HumanMessage(content=message)]

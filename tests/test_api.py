@@ -9,7 +9,12 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
 from consumer_intel.api.app import app
-from consumer_intel.api.deps import get_campaign_graph, get_customer_insight_graph, get_db
+from consumer_intel.api.deps import (
+    get_campaign_graph,
+    get_customer_insight_graph,
+    get_db,
+    get_session_factory,
+)
 
 
 @pytest.fixture
@@ -75,13 +80,18 @@ def chat_client(populated_engine):
         finally:
             s.close()
 
-    graph = build_customer_insight_graph(sessionmaker(bind=populated_engine))
+    test_session_factory = sessionmaker(bind=populated_engine)
+    graph = build_customer_insight_graph(test_session_factory)
 
     def _override_graph():
         return graph
 
+    def _override_session_factory():
+        return test_session_factory
+
     app.dependency_overrides[get_db] = _override_db
     app.dependency_overrides[get_customer_insight_graph] = _override_graph
+    app.dependency_overrides[get_session_factory] = _override_session_factory
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
