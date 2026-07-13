@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from consumer_intel.api.app import app
-from consumer_intel.api.deps import get_db
+from consumer_intel.api.deps import get_campaign_graph, get_db
 
 
 @pytest.fixture
@@ -25,6 +25,40 @@ def client(populated_engine):
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def campaign_client(populated_engine, tmp_path):
+    """TestClient with get_db AND get_campaign_graph both overridden.
+
+    populated_engine already has C2 ("Can't Lose Them") as a win-back
+    candidate and the ORM tables the campaign graph writes to.
+    """
+    from langgraph.checkpoint.sqlite import SqliteSaver
+
+    from consumer_intel.copilot_graph.campaign_graph import build_campaign_graph
+
+    def _override_db():
+        s = Session(populated_engine)
+        try:
+            yield s
+        finally:
+            s.close()
+
+    session_factory = sessionmaker(bind=populated_engine)
+
+    with SqliteSaver.from_conn_string(str(tmp_path / "checkpoints.db")) as checkpointer:
+        checkpointer.setup()
+        graph = build_campaign_graph(session_factory, checkpointer)
+
+        def _override_graph():
+            yield graph
+
+        app.dependency_overrides[get_db] = _override_db
+        app.dependency_overrides[get_campaign_graph] = _override_graph
+        with TestClient(app) as c:
+            yield c
+        app.dependency_overrides.clear()
 
 
 def test_health(client):
@@ -86,6 +120,92 @@ def test_top_clv_limit_validation(client):
     # limit above the allowed maximum -> 422 from FastAPI query validation
     r = client.get("/customers/top-clv", params={"limit": 9999})
     assert r.status_code == 422
+
+
+# --- campaign endpoints ----------------------------------------------------
+
+
+def test_generate_campaign_pauses_for_review(campaign_client):
+    r = campaign_client.post("/campaigns/generate")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "pending_review"
+    assert body["brief"]["headline"]
+    assert {c["customer_id"] for c in body["candidates"]} == {"C2"}  # only win-back candidate
+
+
+def test_list_campaigns_after_generate(campaign_client):
+    gen = campaign_client.post("/campaigns/generate").json()
+    r = campaign_client.get("/campaigns", params={"status": "pending"})
+    assert r.status_code == 200
+    threads = {c["thread_id"] for c in r.json()}
+    assert gen["thread_id"] in threads
+
+
+def test_get_campaign_detail(campaign_client):
+    gen = campaign_client.post("/campaigns/generate").json()
+    r = campaign_client.get(f"/campaigns/{gen['thread_id']}")
+    assert r.status_code == 200
+    assert r.json()["candidates"][0]["customer_id"] == "C2"
+
+
+def test_get_campaign_detail_unknown(campaign_client):
+    r = campaign_client.get("/campaigns/nope-not-a-thread")
+    assert r.status_code == 404
+
+
+def test_resume_approved_commits(campaign_client):
+    gen = campaign_client.post("/campaigns/generate").json()
+    r = campaign_client.post(
+        f"/campaigns/{gen['thread_id']}/resume",
+        json={"action": "approved", "reviewer": "alice"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "approved"
+    assert body["reviewer"] == "alice"
+
+    detail = campaign_client.get(f"/campaigns/{gen['thread_id']}").json()
+    assert detail["status"] == "approved"
+    assert detail["decided_at"] is not None
+
+
+def test_resume_revised_pauses_again_with_edits(campaign_client):
+    gen = campaign_client.post("/campaigns/generate").json()
+    r = campaign_client.post(
+        f"/campaigns/{gen['thread_id']}/resume",
+        json={
+            "action": "revised",
+            "review_note": "調整折扣",
+            "discount_overrides": {"C2": 0.05},
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "pending_review"
+    assert body["candidates"][0]["discount"] == 0.05
+
+
+def test_resume_rejected(campaign_client):
+    gen = campaign_client.post("/campaigns/generate").json()
+    r = campaign_client.post(
+        f"/campaigns/{gen['thread_id']}/resume",
+        json={"action": "rejected", "reviewer": "bob", "review_note": "不執行"},
+    )
+    assert r.status_code == 200
+    assert r.json()["status"] == "rejected"
+
+
+def test_resume_unknown_thread_404(campaign_client):
+    r = campaign_client.post("/campaigns/nope-not-a-thread/resume", json={"action": "approved"})
+    assert r.status_code == 404
+
+
+def test_resume_already_decided_400(campaign_client):
+    gen = campaign_client.post("/campaigns/generate").json()
+    campaign_client.post(f"/campaigns/{gen['thread_id']}/resume", json={"action": "approved"})
+    r = campaign_client.post(f"/campaigns/{gen['thread_id']}/resume", json={"action": "approved"})
+    assert r.status_code == 400
 
 
 def test_customers_browse(client):

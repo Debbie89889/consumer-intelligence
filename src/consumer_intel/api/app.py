@@ -8,21 +8,29 @@ Endpoints (see interactive docs at ``/docs``):
 * ``GET  /segments``                            — per-segment rollup
 * ``GET  /customers/top-clv``                   — highest predicted-CLV customers
 * ``GET  /products/{stock_code}/next-best-offer`` — cross-sell recommendations
+* ``POST /campaigns/generate``                  — draft a win-back campaign (HITL)
+* ``GET  /campaigns``                           — list campaign drafts
+* ``GET  /campaigns/{thread_id}``                — one campaign draft's detail
+* ``POST /campaigns/{thread_id}/resume``         — human review decision (approve/revise/reject)
 
 All numbers come from SQL/Python; the Copilot only narrates them.
 """
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import Depends, FastAPI, HTTPException, Query
+from langgraph.types import Command
 from sqlalchemy.orm import Session
 
 from consumer_intel.api import models
-from consumer_intel.api.deps import get_db
+from consumer_intel.api.deps import get_campaign_graph, get_db
 from consumer_intel.copilot.context import build_context
 from consumer_intel.copilot.narrator import generate_insight
 from consumer_intel.copilot.schema import CustomerInsight
-from consumer_intel.db import repository
+from consumer_intel.copilot_graph.campaign_state import initial_campaign_state
+from consumer_intel.db import campaign_repository, repository
 
 app = FastAPI(
     title="Consumer Intelligence API",
@@ -112,3 +120,86 @@ def next_best_offer(
     stock_code: str, limit: int = Query(5, ge=1, le=20), db: Session = Depends(get_db)
 ) -> list[models.NextBestOffer]:
     return [models.NextBestOffer(**r) for r in repository.next_best_offers(db, stock_code, limit)]
+
+
+def _campaign_draft_from_state(thread_id: str, values: dict) -> models.CampaignDraft:
+    return models.CampaignDraft(
+        thread_id=thread_id,
+        status=values.get("status", "unknown"),
+        brief=values.get("brief"),
+        candidates=values.get("candidates") or [],
+        reviewer=values.get("reviewer"),
+        review_note=values.get("review_note"),
+    )
+
+
+@app.post("/campaigns/generate", response_model=models.CampaignDraft)
+def generate_campaign(graph: Any = Depends(get_campaign_graph)) -> models.CampaignDraft:
+    """Draft a win-back campaign for the At Risk / Can't Lose Them segments.
+
+    Runs the graph up to its interrupt() — a human must review via
+    ``/campaigns/{thread_id}/resume`` before anything is committed.
+    """
+    state = initial_campaign_state()
+    config = {"configurable": {"thread_id": state["thread_id"]}}
+    graph.invoke(state, config=config)
+    snapshot = graph.get_state(config)
+    return _campaign_draft_from_state(state["thread_id"], snapshot.values)
+
+
+@app.get("/campaigns", response_model=list[models.CampaignSummaryItem])
+def list_campaigns(
+    status: str | None = Query(None), db: Session = Depends(get_db)
+) -> list[models.CampaignSummaryItem]:
+    rows = campaign_repository.list_campaigns(db, status=status)
+    return [
+        models.CampaignSummaryItem(
+            thread_id=r["thread_id"],
+            status=r["status"],
+            headline=(r["draft"] or {}).get("brief", {}).get("headline"),
+            candidate_count=len((r["draft"] or {}).get("candidates") or []),
+            created_at=r["created_at"],
+        )
+        for r in rows
+    ]
+
+
+@app.get("/campaigns/{thread_id}", response_model=models.CampaignDraft)
+def get_campaign(thread_id: str, db: Session = Depends(get_db)) -> models.CampaignDraft:
+    row = campaign_repository.get_campaign(db, thread_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Campaign {thread_id} not found")
+    draft = row["draft"] or {}
+    return models.CampaignDraft(
+        thread_id=row["thread_id"],
+        status=row["status"],
+        brief=draft.get("brief"),
+        candidates=draft.get("candidates") or [],
+        reviewer=row["reviewer"],
+        review_note=row["review_note"],
+        decided_at=row["decided_at"],
+        created_at=row["created_at"],
+    )
+
+
+@app.post("/campaigns/{thread_id}/resume", response_model=models.CampaignDraft)
+def resume_campaign(
+    thread_id: str,
+    body: models.CampaignResumeRequest,
+    graph: Any = Depends(get_campaign_graph),
+) -> models.CampaignDraft:
+    """Apply a human review decision: approved / revised / rejected.
+
+    A "revised" decision loops the graph back to re-draft and pauses again
+    (a second interrupt); the response reflects whatever state the graph is
+    in after this call, which may again be "pending_review".
+    """
+    config = {"configurable": {"thread_id": thread_id}}
+    if not graph.get_state(config).values:
+        raise HTTPException(status_code=404, detail=f"Campaign {thread_id} not found")
+    if not graph.get_state(config).next:
+        raise HTTPException(status_code=400, detail=f"Campaign {thread_id} is not awaiting review")
+
+    graph.invoke(Command(resume=body.model_dump()), config=config)
+    snapshot = graph.get_state(config)
+    return _campaign_draft_from_state(thread_id, snapshot.values)

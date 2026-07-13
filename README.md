@@ -154,6 +154,10 @@
 | GET | `/analytics/products-overview` | 全體商品總數與總營收 |
 | GET | `/analytics/monthly` | 月營收／訂單／客戶趨勢 |
 | GET | `/analytics/countries` | 各國營收／訂單／客戶 |
+| POST | `/campaigns/generate` | 草擬 win-back campaign(執行到 interrupt 為止) |
+| GET | `/campaigns` | 列出 campaign 草稿(可依狀態篩選) |
+| GET | `/campaigns/{thread_id}` | 單一 campaign 草稿詳情 |
+| POST | `/campaigns/{thread_id}/resume` | 人工審核決定(核准／退回修改／終結) |
 
 ---
 
@@ -169,11 +173,12 @@ pip install -e ".[api,app,copilot,dev]"
 
 ```bash
 python scripts/load_db.py                       # 載入彙總（預設 SQLite）
+alembic upgrade head                             # 建立 Copilot 業務表（conversations/campaign_approvals）
 uvicorn consumer_intel.api.app:app --reload     # API + /docs
 streamlit run app/dashboard.py                  # 前端（另一終端）
 ```
 
-API 文件位於 <http://localhost:8000/docs>,前端位於 <http://localhost:8501>。
+API 文件位於 <http://localhost:8000/docs>,前端位於 <http://localhost:8501>。`alembic upgrade head` 只需執行一次(建立 win-back campaign 功能所需的資料表);不執行也不影響既有的分群／CLV／NBO／傾向功能。
 
 ### 從原始資料完整重現
 
@@ -221,7 +226,7 @@ docker compose up    # 一次啟動 PostgreSQL + API + 前端
 在既有的 LangChain LCEL Copilot（`copilot/`）之外,新增一套 **LangGraph agentic workflow**（`copilot_graph/`）,展示平行工具調用、條件路由、human-in-the-loop 審核與多輪對話狀態管理。兩套實作並存,LCEL 版本不變動;完成後會在此補上三種 orchestration 方式（手刻／LCEL／LangGraph）的完整比較。目前進度:
 
 - **資料層**:新增 `conversations`／`messages`／`campaign_approvals` 三張業務表,以 SQLAlchemy ORM 建模、Alembic 管理版本(獨立於既有分析表的 pandas 載入流程)。
-- **StateGraph 骨架**:`router → (fetch_rfm ‖ fetch_clv ‖ fetch_nbo ‖ fetch_propensity) → join → response_generator`,四個 fetch 節點平行執行、fan-in 後沿用既有的 LCEL 敘述鏈產生洞察。
+- **客戶洞察 StateGraph**:`router →(存在性檢查／intent 判斷)→ not_found／clarify／(fetch_rfm ‖ fetch_clv ‖ fetch_nbo ‖ fetch_propensity)→ join → response_generator →(LLM 失敗時)→ fallback`。四個 fetch 節點平行執行、fan-in 後沿用既有的 LCEL 敘述鏈產生洞察;查無客戶與意圖不明時直接回傳確定性訊息,不進 LLM;LLM 呼叫失敗會經過顯式的 `fallback` 節點退回模板,而不是被靜默吞掉。
 
 **平行 fan-out 的 benchmark**(`python scripts/benchmark_copilot_graph.py`,30 位客戶、本機 SQLite、確定性模板路徑,排除 LLM 呼叫變異):
 
@@ -231,6 +236,28 @@ docker compose up    # 一次啟動 PostgreSQL + API + 前端
 | LangGraph 平行 fan-out | 3.23 | 3.53 | 3.28 |
 
 **誠實的結論:在本機 SQLite 上,平行版本反而較慢。** SQLite 查詢在毫秒等級、幾乎不涉及真正的網路 I/O 等待(GIL 不太會因此釋放),LangGraph 的執行緒調度與 superstep 管理開銷因此蓋過了任何平行化收益。這個 fan-out 模式預期在正式環境(跨網路的 PostgreSQL,每次查詢有真實往返延遲)會有實際效益,但本開發環境沒有 Docker/Postgres 可用,尚未量測——之後接上正式資料庫後會補上對照數字,不先估算或美化。
+
+### Win-back Campaign 產生器(Human-in-the-Loop)
+
+**為什麼需要人工審核**:發折扣給真實客戶是有金錢成本、有品牌風險、且一旦寄出就不可逆的行為。這不是為了展示 LangGraph 的 `interrupt()` 技術而加的裝飾,而是這個動作本身的業務性質要求必須有人把關。
+
+流程(`copilot_graph/campaign_graph.py`):
+
+```
+campaign_intent → build_candidates → match_offers → draft_campaign
+  → persist_pending → await_approval(interrupt)
+       ├─ 核准     → commit_campaign(寫入 DB)
+       ├─ 退回修改 → draft_campaign(帶著審核意見與客戶名單編輯重新草擬)
+       └─ 終結     → reject_campaign
+```
+
+- **候選名單**:`segment IN (At Risk, Can't Lose Them)`,對應 Phase 1 找到的 543 位高價值但已沉睡的客戶。
+- **折扣建議**:依候選名單內 CLV 分位數分三層(前三分之一 20%、中間 15%、後三分之一 10%)——Python 純函式計算,可測試;LLM 完全不接觸個別客戶數字。
+- **推薦商品**:沿用 Phase 1 的 `next_best_offers_for_customer`,依客戶最常購買商品配對關聯規則。
+- **文案**:整個活動共用一段 LCEL 產生的文案(標題／訴求／賣點),LLM 只看 Python 算好的彙總統計(人數、平均 CLV、平均折扣),看不到任何個別客戶資料;無金鑰或呼叫失敗時退回確定性模板。
+- **審核**:LangGraph `interrupt()` + `Command(resume=...)`,checkpointer 用 `SqliteSaver`(本機)/`PostgresSaver`(正式);`campaign_approvals` 的審核紀錄(狀態、審核人、意見、時間)由 SQLAlchemy ORM 寫入,與 checkpointer 各自獨立(見 CLAUDE.md「資料持久化分層」)。
+
+前端新增「**待審核 Campaign**」分頁:產生草稿、瀏覽/編輯候選客戶名單(可勾選剔除、修改個別折扣)、填寫審核意見、核准／退回修改／終結三選一;核准後可下載名單 CSV。API 新增四個端點(見下方「API 端點」表)。
 
 ---
 

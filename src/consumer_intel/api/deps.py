@@ -1,4 +1,4 @@
-"""FastAPI dependencies — database session provisioning.
+"""FastAPI dependencies — database session and campaign-graph provisioning.
 
 The session factory is created lazily from ``DATABASE_URL`` on first use. Tests
 override :func:`get_db` via ``app.dependency_overrides`` to point at a
@@ -8,9 +8,12 @@ throwaway SQLite database, so no production connection is needed.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from typing import Any
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from consumer_intel.copilot_graph.campaign_graph import build_campaign_graph
+from consumer_intel.db.checkpointer import make_checkpointer
 from consumer_intel.db.engine import make_session_factory
 
 _session_factory: sessionmaker[Session] | None = None
@@ -31,3 +34,15 @@ def get_db() -> Iterator[Session]:
         yield session
     finally:
         session.close()
+
+
+def get_campaign_graph() -> Iterator[Any]:
+    """Yield a compiled campaign graph bound to a fresh checkpointer connection.
+
+    Built per-request rather than once at app startup: SqliteSaver/PostgresSaver
+    manage their own raw connection (not SQLAlchemy's pooled engine), so this
+    trades a little per-request connection overhead for the same simple,
+    dependency-injectable, test-overridable shape as :func:`get_db`.
+    """
+    with make_checkpointer() as checkpointer:
+        yield build_campaign_graph(get_session_factory(), checkpointer)

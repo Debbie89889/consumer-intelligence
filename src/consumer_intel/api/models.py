@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from datetime import datetime
+from typing import Literal
+
+from pydantic import BaseModel, Field
 
 
 class HealthResponse(BaseModel):
@@ -90,3 +93,48 @@ class ProductsOverview(BaseModel):
     products: int
     revenue: float | None = None
     quantity: int | None = None
+
+
+class CampaignCandidateItem(BaseModel):
+    customer_id: str
+    segment: str | None = None
+    recency: int | None = None
+    frequency: int | None = None
+    monetary: float | None = None
+    predicted_clv: float | None = None
+    prob_alive: float | None = None
+    discount: float | None = None
+    offer: str | None = None
+
+
+class CampaignBriefItem(BaseModel):
+    headline: str
+    message: str
+    selling_points: list[str]
+
+
+class CampaignDraft(BaseModel):
+    thread_id: str
+    status: str
+    brief: CampaignBriefItem | None = None
+    candidates: list[CampaignCandidateItem] = Field(default_factory=list)
+    reviewer: str | None = None
+    review_note: str | None = None
+    decided_at: datetime | None = None
+    created_at: datetime | None = None
+
+
+class CampaignSummaryItem(BaseModel):
+    thread_id: str
+    status: str
+    headline: str | None = None
+    candidate_count: int
+    created_at: datetime | None = None
+
+
+class CampaignResumeRequest(BaseModel):
+    action: Literal["approved", "revised", "rejected"]
+    reviewer: str | None = None
+    review_note: str | None = None
+    excluded_customer_ids: list[str] = Field(default_factory=list)
+    discount_overrides: dict[str, float] = Field(default_factory=dict)
