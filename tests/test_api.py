@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
 from consumer_intel.api.app import app
-from consumer_intel.api.deps import get_campaign_graph, get_db
+from consumer_intel.api.deps import (
+    get_campaign_graph,
+    get_customer_insight_graph,
+    get_db,
+    get_session_factory,
+)
 
 
 @pytest.fixture
@@ -59,6 +66,43 @@ def campaign_client(populated_engine, tmp_path):
         with TestClient(app) as c:
             yield c
         app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def chat_client(populated_engine):
+    """TestClient with get_db AND get_customer_insight_graph both overridden."""
+    from consumer_intel.copilot_graph.graph import build_customer_insight_graph
+
+    def _override_db():
+        s = Session(populated_engine)
+        try:
+            yield s
+        finally:
+            s.close()
+
+    test_session_factory = sessionmaker(bind=populated_engine)
+    graph = build_customer_insight_graph(test_session_factory)
+
+    def _override_graph():
+        return graph
+
+    def _override_session_factory():
+        return test_session_factory
+
+    app.dependency_overrides[get_db] = _override_db
+    app.dependency_overrides[get_customer_insight_graph] = _override_graph
+    app.dependency_overrides[get_session_factory] = _override_session_factory
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()
+
+
+def _sse_events(response):
+    events = []
+    for line in response.iter_lines():
+        if line.startswith("data: "):
+            events.append(json.loads(line[len("data: ") :]))
+    return events
 
 
 def test_health(client):
@@ -233,6 +277,66 @@ def test_product_detail(client):
 def test_product_detail_404(client):
     r = client.get("/products/NOPE")
     assert r.status_code == 404
+
+
+# --- chat streaming endpoint -------------------------------------------
+
+
+def test_chat_stream_clarify_when_no_llm_key(chat_client, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    with chat_client.stream(
+        "GET", "/chat/stream", params={"thread_id": "t1", "message": "你好"}
+    ) as r:
+        assert r.status_code == 200
+        assert r.headers["content-type"].startswith("text/event-stream")
+        events = _sse_events(r)
+
+    node_names = [e["node"] for e in events if e["type"] in ("node_start", "node_end")]
+    assert "extract_context" in node_names
+    assert "clarify" in node_names
+    assert "router" not in node_names  # never reached — customer_id unresolved
+
+    final = events[-1]
+    assert final["type"] == "final"
+    assert final["reply"] == "請問是想了解哪一位客戶?麻煩提供客戶編號。"
+
+
+def test_chat_stream_answers_and_persists(chat_client, monkeypatch):
+    from langchain_core.runnables import RunnableLambda
+
+    from consumer_intel.copilot_graph.chat_schema import ChatAnswer, ExtractedContext
+
+    class FakeModel:
+        def with_structured_output(self, schema):
+            if schema is ExtractedContext:
+                return RunnableLambda(lambda _msgs: ExtractedContext(customer_id="C1"))
+            return RunnableLambda(lambda _msgs: ChatAnswer(answer="他是核心客戶。"))
+
+    monkeypatch.setattr("consumer_intel.copilot_graph.nodes.get_chat_model", lambda: FakeModel())
+    monkeypatch.setenv("OPENAI_API_KEY", "fake-key-for-test")
+
+    with chat_client.stream(
+        "GET", "/chat/stream", params={"thread_id": "t2", "message": "C1 這位客戶如何?"}
+    ) as r:
+        assert r.status_code == 200
+        events = _sse_events(r)
+
+    node_names = [e["node"] for e in events if e["type"] in ("node_start", "node_end")]
+    assert "fetch_rfm" in node_names
+    assert "response_generator" in node_names
+
+    final = events[-1]
+    assert final["type"] == "final"
+    assert final["reply"] == "他是核心客戶。"
+
+    # a second turn on the same thread should see the first turn's history
+    with chat_client.stream(
+        "GET", "/chat/stream", params={"thread_id": "t2", "message": "他為什麼被歸為 Champions?"}
+    ) as r2:
+        events2 = _sse_events(r2)
+    assert events2[-1]["type"] == "final"
 
 
 def test_analytics_monthly(client):

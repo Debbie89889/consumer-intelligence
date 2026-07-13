@@ -13,10 +13,12 @@ from typing import Any
 from sqlalchemy.orm import Session, sessionmaker
 
 from consumer_intel.copilot_graph.campaign_graph import build_campaign_graph
+from consumer_intel.copilot_graph.graph import build_customer_insight_graph
 from consumer_intel.db.checkpointer import make_checkpointer
 from consumer_intel.db.engine import make_session_factory
 
 _session_factory: sessionmaker[Session] | None = None
+_customer_insight_graph: Any | None = None
 
 
 def get_session_factory() -> sessionmaker[Session]:
@@ -46,3 +48,17 @@ def get_campaign_graph() -> Iterator[Any]:
     """
     with make_checkpointer() as checkpointer:
         yield build_campaign_graph(get_session_factory(), checkpointer)
+
+
+def get_customer_insight_graph() -> Any:
+    """Lazily build (and cache) the customer-insight chat graph.
+
+    Unlike the campaign graph, this one has no checkpointer/per-request
+    resource to manage — it's a stateless compiled execution plan bound to
+    the (reusable) session factory, so a single cached instance is safe to
+    reuse across requests.
+    """
+    global _customer_insight_graph
+    if _customer_insight_graph is None:
+        _customer_insight_graph = build_customer_insight_graph(get_session_factory())
+    return _customer_insight_graph
