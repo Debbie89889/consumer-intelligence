@@ -158,6 +158,7 @@
 | GET | `/campaigns` | 列出 campaign 草稿(可依狀態篩選) |
 | GET | `/campaigns/{thread_id}` | 單一 campaign 草稿詳情 |
 | POST | `/campaigns/{thread_id}/resume` | 人工審核決定(核准／退回修改／終結) |
+| GET | `/chat/stream` | 多輪對話式客戶問答,SSE 串流 |
 
 ---
 
@@ -226,7 +227,15 @@ docker compose up    # 一次啟動 PostgreSQL + API + 前端
 在既有的 LangChain LCEL Copilot（`copilot/`）之外,新增一套 **LangGraph agentic workflow**（`copilot_graph/`）,展示平行工具調用、條件路由、human-in-the-loop 審核與多輪對話狀態管理。兩套實作並存,LCEL 版本不變動;完成後會在此補上三種 orchestration 方式（手刻／LCEL／LangGraph）的完整比較。目前進度:
 
 - **資料層**:新增 `conversations`／`messages`／`campaign_approvals` 三張業務表,以 SQLAlchemy ORM 建模、Alembic 管理版本(獨立於既有分析表的 pandas 載入流程)。
-- **客戶洞察 StateGraph**:`extract_context →(customer_id 可解析?)→ clarify／router →(存在?)→ not_found／(fetch_rfm ‖ fetch_clv ‖ fetch_nbo ‖ fetch_propensity)→ join → response_generator →(LLM 失敗時)→ fallback`。四個 fetch 節點平行執行、fan-in 後產生**對話式**的 grounded 回答(純文字,不是固定的 CustomerInsight 結構);查無客戶與客戶身分無法判斷時直接回傳確定性訊息,不進 LLM;LLM 呼叫失敗會經過顯式的 `fallback` 節點退回模板。`extract_context` 會從對話歷史(含代名詞,例如「他」「那位客戶」)解析出這一輪在問哪位客戶——多輪對話狀態存在 SQLAlchemy `messages` 表,由 `copilot_graph/chat.py` 的 `run_turn()` 每輪重建,這個 graph 本身不用 checkpointer。**尚未接上 API／前端**,只能透過程式呼叫,串流與聊天介面待後續完成才會補進來。
+- **客戶洞察 StateGraph**:`extract_context →(customer_id 可解析?)→ clarify／router →(存在?)→ not_found／(fetch_rfm ‖ fetch_clv ‖ fetch_nbo ‖ fetch_propensity)→ join → response_generator →(LLM 失敗時)→ fallback`。四個 fetch 節點平行執行、fan-in 後產生**對話式**的 grounded 回答(純文字,不是固定的 CustomerInsight 結構);查無客戶與客戶身分無法判斷時直接回傳確定性訊息,不進 LLM;LLM 呼叫失敗會經過顯式的 `fallback` 節點退回模板。`extract_context` 會從對話歷史(含代名詞,例如「他」「那位客戶」)解析出這一輪在問哪位客戶——多輪對話狀態存在 SQLAlchemy `messages` 表,由 `copilot_graph/chat.py` 的 `run_turn()` 每輪重建,這個 graph 本身不用 checkpointer。
+
+### 多輪對話 + SSE 串流
+
+`GET /chat/stream?thread_id=...&message=...`,以 `graph.astream_events(...)` 轉成 SSE(`text/event-stream`)。事件經過 `copilot_graph/streaming.py` 篩選成精簡格式(`node_start`／`node_end`／`token`／`final`／`interrupt`),不直接把 LangChain 原始事件(含完整 state、非 JSON 的訊息物件)丟給前端。前端 Streamlit 新增「**Copilot 對話**」分頁,`st.chat_input` 驅動,每個瀏覽器 session 一個 `thread_id`,可連續追問(例如「12345這位客戶如何?」→「他為什麼被歸為At Risk?」→「那該給他什麼offer?」),不需要每次都重講一次客戶編號。
+
+**兩個誠實的已知限制**:
+1. **LLM token 串流未經真實驗證**:本開發環境沒有 OPENAI_API_KEY／ANTHROPIC_API_KEY,`on_chat_model_stream` 事件的轉發邏輯只依 LangChain 文件實作,沒有對著真實 provider 測過。且兩個 LLM 呼叫都用 `with_structured_output`(底層走 tool-calling)做 grounding,串流出來的可能是局部的 tool-call JSON 片段而非可讀文字——前端把 `token` 事件當作「執行中」的進度訊號,實際顯示的文字以 `final` 事件為準。
+2. **前端沒有真的用瀏覽器點過**:這個環境沒有 Playwright/chromium-cli 之類的瀏覽器自動化工具。已驗證的是:對著真實跑起來的 FastAPI 伺服器(不是只有 TestClient)發真實 HTTP 請求,SSE 事件序列與最終回覆都正確;Streamlit 頁面在真實 API 前指向下可以載入不報錯。但聊天輸入框的送出/串流顯示,沒有真的點擊驗證過。
 
 **平行 fan-out 的 benchmark**(`python scripts/benchmark_copilot_graph.py`,30 位客戶、本機 SQLite、確定性模板路徑,排除 LLM 呼叫變異):
 

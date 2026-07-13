@@ -12,24 +12,36 @@ Endpoints (see interactive docs at ``/docs``):
 * ``GET  /campaigns``                           — list campaign drafts
 * ``GET  /campaigns/{thread_id}``                — one campaign draft's detail
 * ``POST /campaigns/{thread_id}/resume``         — human review decision (approve/revise/reject)
+* ``GET  /chat/stream``                          — conversational customer Q&A, streamed via SSE
 
 All numbers come from SQL/Python; the Copilot only narrates them.
 """
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.responses import StreamingResponse
+from langchain_core.messages import HumanMessage
 from langgraph.types import Command
 from sqlalchemy.orm import Session
 
 from consumer_intel.api import models
-from consumer_intel.api.deps import get_campaign_graph, get_db
+from consumer_intel.api.deps import (
+    get_campaign_graph,
+    get_customer_insight_graph,
+    get_db,
+    get_session_factory,
+)
 from consumer_intel.copilot.context import build_context
 from consumer_intel.copilot.narrator import generate_insight
 from consumer_intel.copilot.schema import CustomerInsight
 from consumer_intel.copilot_graph.campaign_state import initial_campaign_state
+from consumer_intel.copilot_graph.chat import load_history, persist_new_messages
+from consumer_intel.copilot_graph.state import initial_state
+from consumer_intel.copilot_graph.streaming import sse_event_payload
 from consumer_intel.db import campaign_repository, repository
 
 app = FastAPI(
@@ -203,3 +215,40 @@ def resume_campaign(
     graph.invoke(Command(resume=body.model_dump()), config=config)
     snapshot = graph.get_state(config)
     return _campaign_draft_from_state(thread_id, snapshot.values)
+
+
+@app.get("/chat/stream")
+async def chat_stream(
+    thread_id: str,
+    message: str,
+    graph: Any = Depends(get_customer_insight_graph),
+) -> StreamingResponse:
+    """Conversational customer Q&A, streamed as SSE.
+
+    Resolves customer_id (including pronouns like "他") from the thread's
+    conversation history via the graph's extract_context node; the new
+    human/AI messages are persisted once the run completes. Event payloads
+    are curated by streaming.sse_event_payload — see that module for the
+    event schema and a known gap around LLM token-level streaming.
+    """
+    session_factory = get_session_factory()
+    history = load_history(session_factory, thread_id)
+    state_in = initial_state(
+        thread_id, customer_id=None, messages=[*history, HumanMessage(content=message)]
+    )
+
+    async def event_generator():
+        final_state: dict | None = None
+        async for event in graph.astream_events(state_in, version="v2"):
+            if event["event"] == "on_chain_end" and event.get("name") == "LangGraph":
+                final_state = event["data"].get("output")
+            payload = sse_event_payload(event)
+            if payload is not None:
+                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+        if final_state is not None:
+            new_messages = final_state["messages"][len(history) :]
+            persist_new_messages(
+                session_factory, thread_id, final_state.get("customer_id"), new_messages
+            )
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")

@@ -11,7 +11,9 @@
 from __future__ import annotations
 
 import html
+import json
 import os
+import uuid
 
 import pandas as pd
 import plotly.express as px
@@ -180,8 +182,8 @@ if health:
         unsafe_allow_html=True,
     )
 
-tab_seg, tab_cust, tab_prod, tab_trend, tab_campaign = st.tabs(
-    ["客群總覽", "客戶分析", "產品分析", "趨勢與地區", "待審核 Campaign"]
+tab_seg, tab_cust, tab_prod, tab_trend, tab_campaign, tab_chat = st.tabs(
+    ["客群總覽", "客戶分析", "產品分析", "趨勢與地區", "待審核 Campaign", "Copilot 對話"]
 )
 
 # ======================================================================
@@ -775,3 +777,73 @@ with tab_campaign:
 
     elif detail and detail["status"] == "rejected":
         st.warning(f"🛑 已終結:{detail['brief']['headline'] if detail['brief'] else tid}")
+
+# ======================================================================
+# Copilot 對話(多輪、SSE 串流)
+# ======================================================================
+with tab_chat:
+    st.markdown("#### Copilot 對話")
+    st.markdown(
+        "<span class='caption-dim'>可連續追問,例如:「12345 這位客戶如何?」→「他為什麼被歸為 "
+        "At Risk?」→「那該給他什麼 offer?」——系統會從對話上下文判斷你問的是哪位客戶。"
+        "數字皆由後端計算,AI 僅負責敘述(grounded)。</span>",
+        unsafe_allow_html=True,
+    )
+
+    st.session_state.setdefault("chat_thread_id", str(uuid.uuid4()))
+    st.session_state.setdefault("chat_messages", [])
+
+    if st.button("🔄 開始新對話"):
+        st.session_state["chat_thread_id"] = str(uuid.uuid4())
+        st.session_state["chat_messages"] = []
+        st.rerun()
+
+    for msg in st.session_state["chat_messages"]:
+        with st.chat_message(msg["role"]):
+            st.write(msg["content"])
+
+    user_text = (st.chat_input("輸入問題,例如:12345 這位客戶如何?") or "").strip()
+    if user_text:
+        st.session_state["chat_messages"].append({"role": "user", "content": user_text})
+        with st.chat_message("user"):
+            st.write(user_text)
+
+        with st.chat_message("assistant"):
+            status = st.empty()
+            placeholder = st.empty()
+            reply = ""
+            try:
+                with requests.get(
+                    f"{API_URL}/chat/stream",
+                    params={"thread_id": st.session_state["chat_thread_id"], "message": user_text},
+                    stream=True,
+                    timeout=60,
+                ) as resp:
+                    resp.raise_for_status()
+                    for line in resp.iter_lines(decode_unicode=True):
+                        if not line or not line.startswith("data: "):
+                            continue
+                        payload = json.loads(line[len("data: ") :])
+                        kind = payload.get("type")
+                        if kind == "node_start":
+                            status.markdown(
+                                f"<span class='caption-dim'>執行中:{payload['node']}…</span>",
+                                unsafe_allow_html=True,
+                            )
+                        elif kind == "token":
+                            reply += payload.get("content") or ""
+                            placeholder.write(reply)
+                        elif kind == "final":
+                            reply = payload["reply"]
+                            placeholder.write(reply)
+                        elif kind == "interrupt":
+                            reply = (
+                                "這個請求觸發了需要人工審核的流程,請至「待審核 Campaign」分頁查看。"
+                            )
+                            placeholder.write(reply)
+                status.empty()
+            except requests.RequestException as e:
+                reply = f"⚠️ 連線失敗:{e}"
+                placeholder.write(reply)
+
+        st.session_state["chat_messages"].append({"role": "assistant", "content": reply})
