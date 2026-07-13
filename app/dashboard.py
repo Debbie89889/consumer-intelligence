@@ -131,6 +131,18 @@ def api_get(path: str, **params) -> object | None:
         return None
 
 
+def api_post(path: str, payload: dict) -> object | None:
+    """呼叫寫入型端點(產生/審核 campaign)。不快取;成功後呼叫端要自行清快取 + rerun。"""
+    try:
+        resp = requests.post(f"{API_URL}{path}", json=payload, timeout=25)
+        resp.raise_for_status()
+        return resp.json()
+    except requests.RequestException as e:
+        detail = getattr(getattr(e, "response", None), "text", str(e))
+        st.error(f"操作失敗:{detail}")
+        return None
+
+
 def money(x: float | None) -> str:
     return f"£{(x or 0):,.0f}"
 
@@ -168,7 +180,9 @@ if health:
         unsafe_allow_html=True,
     )
 
-tab_seg, tab_cust, tab_prod, tab_trend = st.tabs(["客群總覽", "客戶分析", "產品分析", "趨勢與地區"])
+tab_seg, tab_cust, tab_prod, tab_trend, tab_campaign = st.tabs(
+    ["客群總覽", "客戶分析", "產品分析", "趨勢與地區", "待審核 Campaign"]
+)
 
 # ======================================================================
 # 客群總覽
@@ -611,3 +625,153 @@ with tab_trend:
             "Unspecified)無法定位,已從地圖略過。</span>",
             unsafe_allow_html=True,
         )
+
+# ======================================================================
+# 待審核 Campaign(Human-in-the-Loop)
+# ======================================================================
+with tab_campaign:
+    st.markdown("#### Win-back Campaign 草稿與審核")
+    st.markdown(
+        "<span class='caption-dim'>針對「流失風險客戶」與「不能流失的客戶」草擬折扣與文案;"
+        "數字(折扣、CLV、推薦商品)皆由後端計算,AI 只負責撰寫文案。"
+        "任何折扣都要人工核准後才會寫入名單——發折扣給真實客戶是不可逆的商業行為,"
+        "系統不會自動發送。</span>",
+        unsafe_allow_html=True,
+    )
+
+    st.session_state.setdefault("campaign_thread_id", None)
+
+    if st.button("➕ 產生新的 Campaign 草稿", type="primary"):
+        gen = api_post("/campaigns/generate", {})
+        if gen:
+            _get.clear()
+            st.session_state["campaign_thread_id"] = gen["thread_id"]
+            st.rerun()
+
+    pending = api_get("/campaigns", status="pending") or []
+    if not pending:
+        st.info("目前沒有待審核的 Campaign 草稿。")
+    else:
+        labels = [
+            f"{p['headline'] or p['thread_id']}({p['candidate_count']} 位客戶)" for p in pending
+        ]
+        thread_ids = [p["thread_id"] for p in pending]
+        current = st.session_state["campaign_thread_id"]
+        default_idx = thread_ids.index(current) if current in thread_ids else 0
+        chosen = st.selectbox(
+            "待審核草稿",
+            options=range(len(labels)),
+            format_func=lambda i: labels[i],
+            index=default_idx,
+        )
+        st.session_state["campaign_thread_id"] = thread_ids[chosen]
+
+    tid = st.session_state["campaign_thread_id"]
+    detail = api_get(f"/campaigns/{tid}") if tid else None
+
+    if detail and detail["status"] == "pending_review":
+        brief = detail["brief"]
+        st.markdown(f"### {brief['headline']}")
+        st.write(brief["message"])
+        st.markdown("**賣點**:" + "、".join(brief["selling_points"]))
+
+        cdf = pd.DataFrame(detail["candidates"])
+        cdf["客群"] = cdf["segment"].map(segment_zh)
+        cdf["剔除"] = False
+
+        n = len(cdf)
+        c1, c2, c3 = st.columns(3)
+        c1.metric("候選客戶數", f"{n:,}")
+        c2.metric("平均預估 CLV", money(cdf["predicted_clv"].mean() if n else 0))
+        c3.metric("平均折扣", f"{(cdf['discount'].mean() if n else 0):.0%}")
+
+        st.markdown("#### 客戶明細(可編輯折扣、勾選剔除)")
+        edited = st.data_editor(
+            cdf[
+                ["customer_id", "客群", "predicted_clv", "prob_alive", "discount", "offer", "剔除"]
+            ],
+            key=f"editor_{tid}",
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "customer_id": st.column_config.TextColumn("客戶編號", disabled=True),
+                "客群": st.column_config.TextColumn("客群", disabled=True),
+                "predicted_clv": st.column_config.NumberColumn(
+                    "預估CLV", format="£%d", disabled=True
+                ),
+                "prob_alive": st.column_config.NumberColumn(
+                    "存活機率", format="%.0f%%", disabled=True
+                ),
+                "discount": st.column_config.NumberColumn(
+                    "折扣", min_value=0.0, max_value=1.0, step=0.01, format="%.0f%%"
+                ),
+                "offer": st.column_config.TextColumn("推薦商品", disabled=True),
+                "剔除": st.column_config.CheckboxColumn("剔除"),
+            },
+        )
+
+        review_note = st.text_area("審核意見(選填,退回修改／終結時建議填寫)")
+        b1, b2, b3 = st.columns(3)
+        if b1.button("✅ 核准", use_container_width=True):
+            resp = api_post(
+                f"/campaigns/{tid}/resume",
+                {"action": "approved", "reviewer": "行銷人員", "review_note": review_note or None},
+            )
+            if resp:
+                _get.clear()
+                st.success("已核准,名單已寫入。")
+                st.rerun()
+        if b2.button("↩️ 退回修改", use_container_width=True):
+            excluded = edited.loc[edited["剔除"], "customer_id"].tolist()
+            overrides = {
+                row["customer_id"]: float(row["discount"])
+                for _, row in edited.iterrows()
+                if row["customer_id"] not in excluded
+            }
+            resp = api_post(
+                f"/campaigns/{tid}/resume",
+                {
+                    "action": "revised",
+                    "review_note": review_note or None,
+                    "excluded_customer_ids": excluded,
+                    "discount_overrides": overrides,
+                },
+            )
+            if resp:
+                _get.clear()
+                st.success("已退回,重新草擬中——請查看下方新草稿。")
+                st.rerun()
+        if b3.button("🛑 終結", use_container_width=True):
+            resp = api_post(
+                f"/campaigns/{tid}/resume",
+                {"action": "rejected", "reviewer": "行銷人員", "review_note": review_note or None},
+            )
+            if resp:
+                _get.clear()
+                st.session_state["campaign_thread_id"] = None
+                st.warning("已終結此 Campaign,未寫入任何名單。")
+                st.rerun()
+
+    elif detail and detail["status"] == "approved":
+        st.success(f"✅ 已核准:{detail['brief']['headline']}")
+        cdf = pd.DataFrame(detail["candidates"])
+        cdf["客群"] = cdf["segment"].map(segment_zh)
+        st.dataframe(
+            cdf[["customer_id", "客群", "predicted_clv", "discount", "offer"]],
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "customer_id": st.column_config.TextColumn("客戶編號"),
+                "客群": st.column_config.TextColumn("客群"),
+                "predicted_clv": st.column_config.NumberColumn("預估CLV", format="£%d"),
+                "discount": st.column_config.NumberColumn("折扣", format="%.0f%%"),
+                "offer": st.column_config.TextColumn("推薦商品"),
+            },
+        )
+        csv_bytes = cdf.to_csv(index=False).encode("utf-8-sig")
+        st.download_button(
+            "⬇️ 下載名單 CSV", csv_bytes, file_name=f"campaign_{tid}.csv", mime="text/csv"
+        )
+
+    elif detail and detail["status"] == "rejected":
+        st.warning(f"🛑 已終結:{detail['brief']['headline'] if detail['brief'] else tid}")

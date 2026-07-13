@@ -258,4 +258,8 @@ def populated_engine(tmp_path):
         ]
     )
     customer_top_product.to_sql("customer_top_product", engine, index=False, if_exists="replace")
+
+    from consumer_intel.db.models import Base
+
+    Base.metadata.create_all(engine)  # conversations / messages / campaign_approvals
     return engine
