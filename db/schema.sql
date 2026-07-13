@@ -1,7 +1,13 @@
--- Canonical PostgreSQL schema for the consumer-intelligence store.
+-- Canonical PostgreSQL schema for the consumer-intelligence *analytics* store.
 -- The loader (db/loader.py) creates these tables automatically via pandas;
 -- this file documents the production schema and is used to initialise the
 -- Postgres container in docker-compose.
+--
+-- The Copilot's business tables (conversations, messages, campaign_approvals)
+-- are intentionally NOT here. They are written to incrementally at request
+-- time (not bulk-replaced from parquet like the tables below), so they are
+-- modelled and versioned with Alembic instead — see src/consumer_intel/db/models.py
+-- and alembic/. Run `alembic upgrade head` to create/update them.
 
 CREATE TABLE IF NOT EXISTS customers (
     customer_id          TEXT PRIMARY KEY,
