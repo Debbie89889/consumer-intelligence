@@ -7,6 +7,14 @@ from sqlalchemy.orm import Session
 from consumer_intel.db import repository
 
 
+def test_win_back_candidates_filters_by_segment(populated_engine):
+    with Session(populated_engine) as s:
+        rows = repository.win_back_candidates(s)
+    # only C2 ("Can't Lose Them") qualifies; C1 (Champions) and C3 (Lost) don't
+    assert [r["customer_id"] for r in rows] == ["C2"]
+    assert rows[0]["segment"] == "Can't Lose Them"
+
+
 def test_customer_exists_true_for_known_customer(populated_engine):
     with Session(populated_engine) as s:
         assert repository.customer_exists(s, "C1") is True

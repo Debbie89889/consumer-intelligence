@@ -59,8 +59,12 @@ def narrate_template(ctx: InsightContext) -> dict:
     return {"headline": headline, "observations": observations, "recommended_actions": actions}
 
 
-def _chat_model():
-    """依環境變數建立 provider-agnostic 的 LangChain chat model。"""
+def get_chat_model():
+    """依環境變數建立 provider-agnostic 的 LangChain chat model。
+
+    公開(非底線開頭),供 copilot_graph 的 campaign 敘述層重用同一套
+    provider 解析邏輯,不必重寫一份。
+    """
     provider = os.environ.get("LLM_PROVIDER")
     model = os.environ.get("LLM_MODEL")
     if not provider:
@@ -94,7 +98,7 @@ def narrate_langchain(ctx: InsightContext) -> dict:
     facts = ctx.model_dump()
     facts["segment_zh"] = segment_zh(ctx.segment)
 
-    model = _chat_model()
+    model = get_chat_model()
     prompt = ChatPromptTemplate.from_messages(
         [("system", _SYSTEM), ("human", "事實(JSON):\n{facts}\n\n請撰寫洞察。")]
     )

@@ -131,6 +131,34 @@ def next_best_offers_for_customer(session: Session, customer_id: str, limit: int
     return [dict(r) for r in rows]
 
 
+WIN_BACK_SEGMENTS = ("At Risk", "Can't Lose Them")
+
+
+def win_back_candidates(session: Session) -> list[dict]:
+    """High-value, sleeping customers — the win-back campaign candidate list.
+
+    Segments chosen match Phase 1's finding: At Risk + Can't Lose Them are
+    valuable customers who have gone quiet.
+    """
+    rows = (
+        session.execute(
+            text(
+                """
+            SELECT customer_id, segment, recency, frequency, monetary,
+                   predicted_clv, prob_alive
+            FROM customers
+            WHERE segment IN (:seg1, :seg2)
+            ORDER BY predicted_clv DESC
+            """
+            ),
+            {"seg1": WIN_BACK_SEGMENTS[0], "seg2": WIN_BACK_SEGMENTS[1]},
+        )
+        .mappings()
+        .all()
+    )
+    return [dict(r) for r in rows]
+
+
 def customer_exists(session: Session, customer_id: str) -> bool:
     """Cheap existence check for a customer_id.
 
