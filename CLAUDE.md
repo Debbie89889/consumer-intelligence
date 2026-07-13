@@ -50,8 +50,9 @@ src/consumer_intel/
   clv/             # 歷史 + BG/NBD + Gamma-Gamma、holdout 驗證
   basket/          # 關聯規則 + Next Best Offer
   propensity/      # 購買傾向:特徵、LogReg/LightGBM、SHAP
-  copilot/         # grounded LLM 洞察層(context/narrator/schema)
-  db/              # SQLAlchemy engine、loader、SQL repository
+  copilot/         # grounded LLM 洞察層(context/narrator/schema),既有 LCEL 實作
+  copilot_graph/   # LangGraph agentic workflow(state/nodes/graph),見 PROMPT_langgraph_copilot.md
+  db/              # SQLAlchemy engine、loader、SQL repository、ORM models(Alembic 管理)
   api/             # FastAPI app、Pydantic models、DB 依賴
 app/dashboard.py   # Streamlit 前端(呼叫 API)
 db/schema.sql      # PostgreSQL DDL
@@ -67,8 +68,9 @@ pip install -e ".[api,app,copilot,dev]"   # 安裝(serving extras + dev)
 
 # 從原始資料完整重現
 python scripts/run_phase0.py              # 清理 + EDA(其餘 run_phase1~4 類推)
-python scripts/build_summaries.py         # 產品/月份/國家彙總
+python scripts/build_summaries.py         # 產品/月份/國家/客戶最愛商品彙總
 python scripts/load_db.py                 # 載入彙總進資料庫
+alembic upgrade head                      # 建立/更新 Copilot 業務表(conversations/messages/campaign_approvals)
 
 # 起服務
 uvicorn consumer_intel.api.app:app --reload   # API + /docs

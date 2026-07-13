@@ -67,3 +67,15 @@ CREATE TABLE IF NOT EXISTS country (
 );
 
 CREATE INDEX IF NOT EXISTS idx_country_revenue ON country (revenue DESC);
+
+-- Each customer's single highest-revenue product. Drives the Copilot graph's
+-- per-customer Next Best Offer lookup (rules are keyed by one antecedent
+-- product, so a customer-level recommendation needs one representative
+-- product per customer).
+CREATE TABLE IF NOT EXISTS customer_top_product (
+    customer_id  TEXT PRIMARY KEY,
+    stock_code   TEXT,
+    revenue      DOUBLE PRECISION
+);
+
+CREATE INDEX IF NOT EXISTS idx_customer_top_product_stock_code ON customer_top_product (stock_code);

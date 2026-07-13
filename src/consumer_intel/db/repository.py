@@ -103,6 +103,34 @@ def next_best_offers(session: Session, stock_code: str, limit: int = 5) -> list[
     return [dict(r) for r in rows]
 
 
+def next_best_offers_for_customer(session: Session, customer_id: str, limit: int = 5) -> list[dict]:
+    """Cross-sell recommendations for a customer, based on their top-revenue product.
+
+    Joins ``customer_top_product`` (one representative product per customer)
+    to ``rules`` on that product's antecedent — the per-customer counterpart
+    to :func:`next_best_offers`, which takes a product code directly.
+    """
+    rows = (
+        session.execute(
+            text(
+                """
+            SELECT r.antecedents, r.consequents, r.consequents_codes,
+                   r.support, r.confidence, r.lift
+            FROM customer_top_product ctp
+            JOIN rules r ON r.antecedents_codes = ctp.stock_code
+            WHERE ctp.customer_id = :cid
+            ORDER BY r.lift DESC
+            LIMIT :lim
+            """
+            ),
+            {"cid": customer_id, "lim": limit},
+        )
+        .mappings()
+        .all()
+    )
+    return [dict(r) for r in rows]
+
+
 def count_customers(session: Session) -> int:
     """Total customers in the store (health/debug)."""
     return int(session.execute(text("SELECT COUNT(*) FROM customers")).scalar_one())

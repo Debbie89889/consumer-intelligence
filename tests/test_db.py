@@ -69,6 +69,24 @@ def test_next_best_offers_unknown_product(populated_engine):
         assert repository.next_best_offers(s, "99999") == []
 
 
+def test_next_best_offers_for_customer(populated_engine):
+    with Session(populated_engine) as s:
+        recs = repository.next_best_offers_for_customer(s, "C1", limit=5)
+    assert len(recs) == 2
+    assert recs[0]["lift"] >= recs[1]["lift"]
+    assert recs[0]["consequents_codes"] == "22384"
+
+
+def test_next_best_offers_for_customer_no_matching_rules(populated_engine):
+    with Session(populated_engine) as s:
+        assert repository.next_best_offers_for_customer(s, "C2") == []
+
+
+def test_next_best_offers_for_customer_unknown_customer(populated_engine):
+    with Session(populated_engine) as s:
+        assert repository.next_best_offers_for_customer(s, "NOPE") == []
+
+
 def test_list_customers_browse(populated_engine):
     with Session(populated_engine) as s:
         rows = repository.list_customers(s, limit=10)
