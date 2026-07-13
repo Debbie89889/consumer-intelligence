@@ -116,19 +116,25 @@ def _resolve_backend(backend: Backend) -> str:
     return "template"
 
 
-def generate_insight(ctx: InsightContext, backend: Backend = "auto") -> CustomerInsight:
-    """由 grounded 事實產生已驗證的 CustomerInsight。
+def generate_insight_with_backend(
+    ctx: InsightContext, backend: Backend = "auto"
+) -> tuple[CustomerInsight, str]:
+    """同 :func:`generate_insight`,但額外回報實際生效的敘述來源。
 
-    id、客群、風險等級與 grounding 皆來自 Python,只有自由文字由敘述層產生;
-    任何 LLM/LangChain 失敗都會退回模板。
+    回傳值為 ``"template"``(本來就選模板)、``"langchain"``(LLM 呼叫成功)
+    或 ``"template_fallback"``(想用 LLM 但呼叫失敗,退回模板)。給
+    copilot_graph 用來把原本隱性的失敗路徑變成可觀測的顯式節點;
+    ``generate_insight`` 的對外行為與簽名完全不變。
     """
     chosen = _resolve_backend(backend)
+    used = chosen
     try:
         parts = narrate_template(ctx) if chosen == "template" else narrate_langchain(ctx)
     except Exception:
         parts = narrate_template(ctx)
+        used = "template_fallback"
 
-    return CustomerInsight(
+    insight = CustomerInsight(
         customer_id=ctx.customer_id,
         segment=ctx.segment,
         risk_level=ctx.risk_level,
@@ -137,3 +143,14 @@ def generate_insight(ctx: InsightContext, backend: Backend = "auto") -> Customer
         recommended_actions=parts["recommended_actions"],
         grounding=ctx.model_dump(),
     )
+    return insight, used
+
+
+def generate_insight(ctx: InsightContext, backend: Backend = "auto") -> CustomerInsight:
+    """由 grounded 事實產生已驗證的 CustomerInsight。
+
+    id、客群、風險等級與 grounding 皆來自 Python,只有自由文字由敘述層產生;
+    任何 LLM/LangChain 失敗都會退回模板。
+    """
+    insight, _used = generate_insight_with_backend(ctx, backend)
+    return insight

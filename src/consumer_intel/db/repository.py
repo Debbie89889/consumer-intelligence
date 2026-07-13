@@ -131,6 +131,22 @@ def next_best_offers_for_customer(session: Session, customer_id: str, limit: int
     return [dict(r) for r in rows]
 
 
+def customer_exists(session: Session, customer_id: str) -> bool:
+    """Cheap existence check for a customer_id.
+
+    Used by the Copilot graph's router to short-circuit to a not-found
+    response before the (more expensive, and partly redundant) fan-out
+    queries run.
+    """
+    return (
+        session.execute(
+            text("SELECT 1 FROM customers WHERE customer_id = :cid LIMIT 1"),
+            {"cid": customer_id},
+        ).first()
+        is not None
+    )
+
+
 def count_customers(session: Session) -> int:
     """Total customers in the store (health/debug)."""
     return int(session.execute(text("SELECT COUNT(*) FROM customers")).scalar_one())

@@ -7,7 +7,11 @@ from pydantic import ValidationError
 
 from consumer_intel.copilot import narrator
 from consumer_intel.copilot.context import build_context, risk_from_prob_alive
-from consumer_intel.copilot.narrator import generate_insight, narrate_template
+from consumer_intel.copilot.narrator import (
+    generate_insight,
+    generate_insight_with_backend,
+    narrate_template,
+)
 from consumer_intel.copilot.schema import CustomerInsight, InsightContext, NarratedInsight
 
 
@@ -122,6 +126,38 @@ def test_langchain_backend_assembly(profile, monkeypatch):
     assert insight.segment == "Champions"
     assert insight.risk_level == "low"
     assert insight.grounding["monetary"] == 5400.0
+
+
+def test_generate_insight_with_backend_reports_template(profile, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    ctx = build_context(profile)
+    insight, used = generate_insight_with_backend(ctx, backend="auto")
+    assert used == "template"
+    assert isinstance(insight, CustomerInsight)
+
+
+def test_generate_insight_with_backend_reports_langchain_on_success(profile, monkeypatch):
+    monkeypatch.setattr(
+        narrator,
+        "narrate_langchain",
+        lambda ctx: {"headline": "h", "observations": ["o"], "recommended_actions": ["a"]},
+    )
+    ctx = build_context(profile)
+    insight, used = generate_insight_with_backend(ctx, backend="langchain")
+    assert used == "langchain"
+    assert insight.headline == "h"
+
+
+def test_generate_insight_with_backend_reports_fallback_on_failure(profile, monkeypatch):
+    def _boom(ctx):
+        raise RuntimeError("no api key / network down")
+
+    monkeypatch.setattr(narrator, "narrate_langchain", _boom)
+    ctx = build_context(profile)
+    insight, used = generate_insight_with_backend(ctx, backend="langchain")
+    assert used == "template_fallback"
+    assert "流失風險" in insight.headline  # fell back to the deterministic template
 
 
 def test_langchain_failure_falls_back_to_template(profile, monkeypatch):
