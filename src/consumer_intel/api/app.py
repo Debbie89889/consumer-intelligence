@@ -134,10 +134,22 @@ def next_best_offer(
     return [models.NextBestOffer(**r) for r in repository.next_best_offers(db, stock_code, limit)]
 
 
+# CampaignState (graph, in-memory) and CampaignApproval (DB, db/models.py)
+# use different vocabularies for "awaiting review" — "pending_review" vs
+# "pending". Every status this API returns must use the DB's vocabulary,
+# since GET /campaigns and GET /campaigns/{thread_id} read straight from
+# campaign_repository and can't be changed per-caller; normalize here so
+# POST /campaigns/generate and POST /campaigns/{thread_id}/resume (which
+# read live graph state) return something a caller can compare against
+# GET's response without knowing about the internal graph-only spelling.
+_GRAPH_TO_DB_STATUS = {"pending_review": "pending"}
+
+
 def _campaign_draft_from_state(thread_id: str, values: dict) -> models.CampaignDraft:
+    status = values.get("status", "unknown")
     return models.CampaignDraft(
         thread_id=thread_id,
-        status=values.get("status", "unknown"),
+        status=_GRAPH_TO_DB_STATUS.get(status, status),
         brief=values.get("brief"),
         candidates=values.get("candidates") or [],
         reviewer=values.get("reviewer"),
@@ -204,7 +216,7 @@ def resume_campaign(
 
     A "revised" decision loops the graph back to re-draft and pauses again
     (a second interrupt); the response reflects whatever state the graph is
-    in after this call, which may again be "pending_review".
+    in after this call, which may again be "pending".
     """
     config = {"configurable": {"thread_id": thread_id}}
     if not graph.get_state(config).values:

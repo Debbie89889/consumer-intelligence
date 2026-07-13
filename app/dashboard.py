@@ -671,7 +671,7 @@ with tab_campaign:
     tid = st.session_state["campaign_thread_id"]
     detail = api_get(f"/campaigns/{tid}") if tid else None
 
-    if detail and detail["status"] == "pending_review":
+    if detail and detail["status"] == "pending":
         brief = detail["brief"]
         st.markdown(f"### {brief['headline']}")
         st.write(brief["message"])
