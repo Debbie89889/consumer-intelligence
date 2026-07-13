@@ -28,9 +28,8 @@ from sqlalchemy.orm import sessionmaker
 os.environ.pop("OPENAI_API_KEY", None)
 os.environ.pop("ANTHROPIC_API_KEY", None)
 
-from consumer_intel.copilot.context import build_context
-from consumer_intel.copilot.narrator import generate_insight
 from consumer_intel.copilot_graph.graph import build_customer_insight_graph
+from consumer_intel.copilot_graph.nodes import answer_template, build_chat_facts
 from consumer_intel.copilot_graph.state import initial_state
 from consumer_intel.db import repository
 from consumer_intel.db.engine import database_url, make_engine
@@ -52,9 +51,8 @@ def run_serial(session_factory: sessionmaker, customer_id: str) -> None:
         repository.get_customer(session, customer_id)  # propensity (same query)
     with session_factory() as session:
         nbo = repository.next_best_offers_for_customer(session, customer_id)
-    offer_names = [r["consequents"] for r in nbo]
-    ctx = build_context(rfm, next_best_offers=offer_names)
-    generate_insight(ctx)
+    facts = build_chat_facts(customer_id, {"rfm": rfm, "nbo": nbo})
+    answer_template(facts)
 
 
 def main() -> None:
@@ -73,7 +71,7 @@ def main() -> None:
 
     # Warm up (import/JIT/connection-pool warm-up outside the timed loop).
     run_serial(session_factory, customer_ids[0])
-    graph.invoke(initial_state(customer_ids[0]))
+    graph.invoke(initial_state("bench", customer_id=customer_ids[0]))
 
     serial_ms: list[float] = []
     for cid in customer_ids:
@@ -84,7 +82,7 @@ def main() -> None:
     parallel_ms: list[float] = []
     for cid in customer_ids:
         t0 = time.perf_counter()
-        graph.invoke(initial_state(cid))
+        graph.invoke(initial_state("bench", customer_id=cid))
         parallel_ms.append((time.perf_counter() - t0) * 1000)
 
     print(f"n = {len(customer_ids)} customers, db = {database_url()}")
