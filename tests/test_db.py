@@ -7,6 +7,16 @@ from sqlalchemy.orm import Session
 from consumer_intel.db import repository
 
 
+def test_customer_exists_true_for_known_customer(populated_engine):
+    with Session(populated_engine) as s:
+        assert repository.customer_exists(s, "C1") is True
+
+
+def test_customer_exists_false_for_unknown_customer(populated_engine):
+    with Session(populated_engine) as s:
+        assert repository.customer_exists(s, "NOPE") is False
+
+
 def test_count_customers(populated_engine):
     with Session(populated_engine) as s:
         assert repository.count_customers(s) == 3

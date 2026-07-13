@@ -6,7 +6,7 @@ all call the same :func:`repository.get_customer`: the analytics DB already
 denormalises RFM, CLV and propensity into one row per customer (a Phase 5
 design choice), so there is nothing to split them into. They stay three
 separate graph nodes anyway — matching the four-way fan-out this phase is
-meant to demonstrate, and giving Phase 2's conditional routing something to
+meant to demonstrate, and giving future conditional routing something to
 selectively skip once it can tell which pieces an intent actually needs.
 ``fetch_nbo`` is the one node doing genuinely different work, via the
 ``next_best_offers_for_customer`` join query added alongside this graph.
@@ -14,19 +14,53 @@ selectively skip once it can tell which pieces an intent actually needs.
 
 from __future__ import annotations
 
+from langgraph.graph import END
 from sqlalchemy.orm import Session, sessionmaker
 
 from consumer_intel.copilot.context import build_context
-from consumer_intel.copilot.narrator import generate_insight
+from consumer_intel.copilot.narrator import generate_insight_with_backend
 from consumer_intel.copilot_graph.state import CopilotState
 from consumer_intel.db import repository
 
+CLARIFYING_QUESTION = (
+    "您想了解的是哪一項?例如:客群輪廓(segment)、顧客終身價值(clv)、"
+    "推薦商品(nbo)、回購傾向(propensity),或行銷活動(campaign)。"
+)
 
-def router(state: CopilotState) -> dict:
-    """Entry node. Phase 2 adds conditional edges here (not-found / unclear /
-    fallback); for now this is a pass-through into the parallel fetch fan-out.
+
+def make_router(session_factory: sessionmaker[Session]):
+    """Build the router node, bound to a session factory.
+
+    Only decides ``customer_exists`` here (a cheap existence check) — the
+    actual conditional routing logic lives in :func:`route_from_router`,
+    which LangGraph runs against the state this node returns.
     """
-    return {}
+
+    def router(state: CopilotState) -> dict:
+        with session_factory() as session:
+            exists = repository.customer_exists(session, str(state["customer_id"]))
+        return {"customer_exists": exists}
+
+    return router
+
+
+def route_from_router(state: CopilotState) -> str | list[str]:
+    """Decide where router sends execution: not_found / clarify / the fetch fan-out."""
+    if not state["customer_exists"]:
+        return "not_found"
+    if state["intent"] == "unclear":
+        return "clarify"
+    return ["fetch_rfm", "fetch_clv", "fetch_nbo", "fetch_propensity"]
+
+
+def not_found(state: CopilotState) -> dict:
+    """Deterministic not-found response. Never reaches the LLM."""
+    return {"error": f"Customer {state['customer_id']} not found"}
+
+
+def clarify(state: CopilotState) -> dict:
+    """Deterministic clarifying question when intent is ambiguous. No LLM call."""
+    return {"clarification": CLARIFYING_QUESTION}
 
 
 def make_fetch_rfm(session_factory: sessionmaker[Session]):
@@ -74,18 +108,43 @@ def make_fetch_nbo(session_factory: sessionmaker[Session]):
 
 
 def join(state: CopilotState) -> dict:
-    """Fan-in point: confirm the customer exists before the LLM narration step."""
-    if state["tool_results"].get("rfm") is None:
-        return {"error": f"Customer {state['customer_id']} not found"}
+    """Fan-in synchronisation point. router already ruled out a missing
+    customer before the fan-out started, so there is nothing left to check
+    here — this is a pass-through the graph needs so all four fetch edges
+    converge before response_generator runs.
+    """
     return {}
 
 
 def response_generator(state: CopilotState) -> dict:
-    """Narrate the grounded facts. Reuses the existing LCEL chain unchanged."""
-    if state.get("error"):
-        return {"insight": None}
+    """Narrate the grounded facts. Reuses the existing LCEL chain unchanged.
+
+    Also records which backend actually served the narration
+    (template / langchain / template_fallback) so :func:`route_from_response`
+    can send a failed LLM call through the observable ``fallback`` node.
+    """
     results = state["tool_results"]
     offer_names = [r["consequents"] for r in results.get("nbo", [])]
     ctx = build_context(results["rfm"], next_best_offers=offer_names)
-    insight = generate_insight(ctx)
-    return {"insight": insight.model_dump()}
+    insight, used = generate_insight_with_backend(ctx)
+    return {"insight": insight.model_dump(), "narration_backend": used}
+
+
+def route_from_response_generator(state: CopilotState) -> str:
+    """Send a failed-LLM-fell-back-to-template result through the fallback node."""
+    if state["narration_backend"] == "template_fallback":
+        return "fallback"
+    return END
+
+
+def fallback(state: CopilotState) -> dict:
+    """Observability marker for the (already-completed) fallback narration.
+
+    generate_insight_with_backend already produced a valid template-based
+    insight before this node runs — there is nothing left to compute. This
+    node exists purely so the fallback path shows up as its own step in the
+    graph and in execution traces, instead of being silently swallowed
+    inside response_generator like it always has been for the plain LCEL
+    Copilot.
+    """
+    return {}
