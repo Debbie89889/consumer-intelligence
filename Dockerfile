@@ -21,6 +21,11 @@ COPY sql ./sql
 COPY app ./app
 COPY data/processed ./data/processed
 
+# Alembic migrations for the Copilot business tables (conversations/messages/
+# campaign_approvals) — start_api.sh runs `alembic upgrade head` on boot.
+COPY alembic.ini ./
+COPY alembic ./alembic
+
 EXPOSE 8000
 
 # Default command (overridden per-service in docker-compose / render.yaml)
