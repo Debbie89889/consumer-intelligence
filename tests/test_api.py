@@ -173,7 +173,7 @@ def test_generate_campaign_pauses_for_review(campaign_client):
     r = campaign_client.post("/campaigns/generate")
     assert r.status_code == 200
     body = r.json()
-    assert body["status"] == "pending_review"
+    assert body["status"] == "pending"
     assert body["brief"]["headline"]
     assert {c["customer_id"] for c in body["candidates"]} == {"C2"}  # only win-back candidate
 
@@ -191,6 +191,19 @@ def test_get_campaign_detail(campaign_client):
     r = campaign_client.get(f"/campaigns/{gen['thread_id']}")
     assert r.status_code == 200
     assert r.json()["candidates"][0]["customer_id"] == "C2"
+
+
+def test_generate_and_get_report_the_same_status(campaign_client):
+    """Regression test: POST /campaigns/generate reads live graph state while
+    GET /campaigns/{thread_id} reads the DB — these used different spellings
+    for "awaiting review" (graph: "pending_review", DB: "pending") until the
+    API normalized them, which broke the Streamlit UI (it only checked for
+    one of the two). A caller comparing the two responses must see the same
+    status for the same campaign.
+    """
+    gen = campaign_client.post("/campaigns/generate").json()
+    detail = campaign_client.get(f"/campaigns/{gen['thread_id']}").json()
+    assert gen["status"] == detail["status"] == "pending"
 
 
 def test_get_campaign_detail_unknown(campaign_client):
@@ -226,7 +239,7 @@ def test_resume_revised_pauses_again_with_edits(campaign_client):
     )
     assert r.status_code == 200
     body = r.json()
-    assert body["status"] == "pending_review"
+    assert body["status"] == "pending"
     assert body["candidates"][0]["discount"] == 0.05
 
 
